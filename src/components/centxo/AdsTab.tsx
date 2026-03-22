@@ -1,0 +1,1643 @@
+"use client";
+
+import { useEffect, useRef, useState, useMemo } from "react";
+import { useSearchParams } from "next/navigation";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  Calendar,
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Loader2,
+  RefreshCw,
+  Search,
+  X,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import { toast } from "sonner";
+import { useTheme } from "@/components/providers/ThemeProvider";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
+import { Settings2 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import {
+  addMonths,
+  eachDayOfInterval,
+  endOfMonth,
+  format,
+  isSameDay,
+  startOfMonth,
+  subDays,
+  subMonths,
+} from "date-fns";
+import { th, enUS } from "date-fns/locale";
+
+const DAYS = [
+  { id: 0, labelTh: "อา", labelEn: "Su" },
+  { id: 1, labelTh: "จ", labelEn: "Mo" },
+  { id: 2, labelTh: "อ", labelEn: "Tu" },
+  { id: 3, labelTh: "พ", labelEn: "We" },
+  { id: 4, labelTh: "พฤ", labelEn: "Th" },
+  { id: 5, labelTh: "ศ", labelEn: "Fr" },
+  { id: 6, labelTh: "ส", labelEn: "Sa" },
+];
+
+function MultiSelectDropdown({
+  options, selected, onChange, placeholder, isThai
+}: {
+  options: { id: string; name: string }[];
+  selected: string[];
+  onChange: (ids: string[]) => void;
+  placeholder: string;
+  isThai: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+
+  const filtered = options.filter(
+    (o) => o.name.toLowerCase().includes(search.toLowerCase()) || o.id.includes(search)
+  );
+  const toggle = (id: string) => onChange(selected.includes(id) ? selected.filter((s) => s !== id) : [...selected, id]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="flex items-center justify-between w-full h-10 px-3 text-sm border rounded-lg bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-primary transition-colors focus:outline-none"
+      >
+        <span className={cn("truncate", !selected.length && "text-gray-400")}>
+          {!selected.length
+            ? placeholder
+            : selected.length === 1
+              ? options.find((o) => o.id === selected[0])?.name
+              : isThai ? `${selected.length} บัญชีที่เลือก` : `${selected.length} selected`}
+        </span>
+        <div className="flex items-center gap-2 shrink-0 ml-2">
+          {!!selected.length && (
+            <span onClick={(e) => { e.stopPropagation(); onChange([]); }} className="text-gray-400 hover:text-gray-600 cursor-pointer">
+              <X className="w-3.5 h-3.5" />
+            </span>
+          )}
+          <ChevronDown className={cn("w-4 h-4 text-gray-400 transition-transform", open && "rotate-180")} />
+        </div>
+      </button>
+
+      {open && (
+        <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg">
+          <div className="p-2 border-b border-gray-100 dark:border-gray-700">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+              <input
+                type="text"
+                placeholder={isThai ? "ค้นหาบัญชี..." : "Search accounts..."}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 focus:outline-none focus:ring-1 focus:ring-primary text-gray-900 dark:text-gray-100 placeholder:text-gray-400"
+                onClick={(e) => e.stopPropagation()}
+              />
+            </div>
+          </div>
+          <div className="flex justify-between items-center px-3 py-1.5 border-b border-gray-100 dark:border-gray-700 text-xs">
+            <div className="flex gap-2">
+              <button onClick={() => onChange(filtered.map((o) => o.id))} className="text-primary hover:underline">{isThai ? "เลือกทั้งหมด" : "Select all"}</button>
+              <span className="text-gray-300">|</span>
+              <button onClick={() => onChange([])} className="text-gray-500 hover:underline">{isThai ? "ยกเลิก" : "Clear"}</button>
+            </div>
+            <button onClick={() => setOpen(false)} className="text-teal-600 hover:text-teal-700 font-medium px-2.5 py-1 rounded-md bg-teal-50 hover:bg-teal-100 dark:text-teal-400 dark:bg-teal-900/30 dark:hover:bg-teal-900/50 transition-colors">{isThai ? "ตกลง" : "Done"}</button>
+          </div>
+          <div className="max-h-52 overflow-y-auto p-1">
+            {filtered.map((opt) => (
+              <div
+                key={opt.id}
+                onClick={() => toggle(opt.id)}
+                className="flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
+              >
+                <div
+                  className={cn(
+                    "w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors",
+                    selected.includes(opt.id)
+                      ? "bg-primary border-primary"
+                      : "border-gray-300 dark:border-gray-500",
+                  )}
+                >
+                  {selected.includes(opt.id) && <Check className="w-3 h-3 text-white" />}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm text-gray-900 dark:text-gray-100 truncate">
+                    {opt.name}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+function MiniCalendar({
+  start,
+  end,
+  onConfirm,
+  onCancel,
+  locale,
+  isThai,
+}: {
+  start: Date | null;
+  end: Date | null;
+  onConfirm: (from: Date | null, to: Date | null) => void;
+  onCancel: () => void;
+  locale: typeof th;
+  isThai: boolean;
+}) {
+  const [cur, setCur] = useState(new Date());
+  const [draftStart, setDraftStart] = useState<Date | null>(start);
+  const [draftEnd, setDraftEnd] = useState<Date | null>(end);
+
+  const handleQuickRange = (type: "today" | "yesterday" | "last7" | "last14" | "thisMonth" | "lastMonth") => {
+    const now = new Date();
+    let from: Date;
+    let to: Date;
+
+    if (type === "today") {
+      from = now;
+      to = now;
+    } else if (type === "yesterday") {
+      from = subDays(now, 1);
+      to = subDays(now, 1);
+    } else if (type === "last7") {
+      to = now;
+      from = subDays(to, 6);
+    } else if (type === "last14") {
+      to = now;
+      from = subDays(to, 13);
+    } else if (type === "thisMonth") {
+      from = startOfMonth(now);
+      to = now;
+    } else {
+      const lastMonth = subMonths(now, 1);
+      from = startOfMonth(lastMonth);
+      to = endOfMonth(lastMonth);
+    }
+
+    onConfirm(from, to);
+  };
+
+  const isQuickActive = (type: "today" | "yesterday" | "last7" | "last14" | "thisMonth" | "lastMonth") => {
+    if (!start || !end) return false;
+    const now = new Date();
+
+    const same = (d1: Date, d2: Date) => isSameDay(d1, d2);
+
+    if (type === "today") {
+      return same(start, now) && same(end, now);
+    }
+    if (type === "yesterday") {
+      const y = subDays(now, 1);
+      return same(start, y) && same(end, y);
+    }
+    if (type === "last7") {
+      const to = now;
+      const from = subDays(to, 6);
+      return same(start, from) && same(end, to);
+    }
+    if (type === "last14") {
+      const to = now;
+      const from = subDays(to, 13);
+      return same(start, from) && same(end, to);
+    }
+    if (type === "thisMonth") {
+      const from = startOfMonth(now);
+      const to = now;
+      return same(start, from) && same(end, to);
+    }
+    // lastMonth
+    const lastMonth = subMonths(now, 1);
+    const from = startOfMonth(lastMonth);
+    const to = endOfMonth(lastMonth);
+    return same(start, from) && same(end, to);
+  };
+
+  const renderMonth = (monthDate: Date, position: "left" | "right") => {
+    const days = eachDayOfInterval({
+      start: startOfMonth(monthDate),
+      end: endOfMonth(monthDate),
+    });
+    const firstDay = startOfMonth(monthDate).getDay();
+
+    return (
+      <div className="w-60">
+        <div className="flex items-center justify-center gap-2 mb-2 text-sm">
+          {position === "left" && (
+            <button
+              type="button"
+              onClick={() => setCur(subMonths(cur, 1))}
+              className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+          )}
+          <span className="font-medium text-gray-900 dark:text-gray-100">
+            {format(monthDate, "MMMM yyyy", { locale })}
+          </span>
+          {position === "right" && (
+            <button
+              type="button"
+              onClick={() => setCur(addMonths(cur, 1))}
+              className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+        <div className="grid grid-cols-7 mb-0.5 text-xs">
+          {DAYS.map((d) => (
+            <div
+              key={d.id}
+              className="text-center text-xs text-gray-400 py-1"
+            >
+              {isThai ? d.labelTh : d.labelEn}
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-7 gap-0">
+          {Array.from({ length: firstDay }).map((_, i) => (
+            <div key={`e${i}`} />
+          ))}
+          {days.map((day) => {
+            const isStart = draftStart ? isSameDay(day, draftStart) : false;
+            const isEnd = draftEnd ? isSameDay(day, draftEnd) : false;
+            const inRange =
+              draftStart && draftEnd && day > draftStart && day < draftEnd
+                ? true
+                : false;
+            const today = isSameDay(day, new Date());
+
+            let cls =
+              "h-[1.75rem] w-full flex items-center justify-center text-sm transition-colors ";
+            if (isStart || isEnd) {
+              cls += "bg-primary text-white ring-1 ring-primary/70 rounded-md";
+            } else if (inRange) {
+              cls +=
+                "bg-primary/10 dark:bg-primary/30 text-primary dark:text-primary";
+            } else if (today) {
+              cls +=
+                "bg-primary/10 dark:bg-primary/30 text-primary dark:text-primary font-medium";
+            } else {
+              cls +=
+                "hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300";
+            }
+
+            return (
+              <button
+                key={day.toISOString()}
+                onClick={() => {
+                  if (!draftStart || (draftStart && draftEnd)) {
+                    setDraftStart(day);
+                    setDraftEnd(null);
+                  } else if (day < draftStart) {
+                    setDraftStart(day);
+                    setDraftEnd(draftStart);
+                  } else {
+                    setDraftEnd(day);
+                  }
+                }}
+                className={cls}
+              >
+                {format(day, "d")}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="p-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg">
+      <div className="flex gap-3">
+        <div className="w-40 pr-3 mr-1 border-r border-gray-200 dark:border-gray-700 flex flex-col gap-1.5 text-sm">
+          <button
+            type="button"
+            className="w-full px-2 py-1 text-sm rounded-md text-left hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 flex items-center gap-2"
+            onClick={() => handleQuickRange("today")}
+          >
+            <span
+              className={`w-3.5 h-3.5 rounded-full border ${isQuickActive("today")
+                ? "border-primary"
+                : "border-gray-300 dark:border-gray-500"
+                } flex items-center justify-center`}
+            >
+              {isQuickActive("today") && (
+                <span className="w-2 h-2 rounded-full bg-primary" />
+              )}
+            </span>
+            {isThai ? "วันนี้" : "Today"}
+          </button>
+          <button
+            type="button"
+            className="w-full px-2 py-1 text-sm rounded-md text-left hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 flex items-center gap-2"
+            onClick={() => handleQuickRange("yesterday")}
+          >
+            <span
+              className={`w-3.5 h-3.5 rounded-full border ${isQuickActive("yesterday")
+                ? "border-primary"
+                : "border-gray-300 dark:border-gray-500"
+                } flex items-center justify-center`}
+            >
+              {isQuickActive("yesterday") && (
+                <span className="w-2 h-2 rounded-full bg-primary" />
+              )}
+            </span>
+            {isThai ? "เมื่อวาน" : "Yesterday"}
+          </button>
+          <button
+            type="button"
+            className="w-full px-2 py-1 text-sm rounded-md text-left hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 flex items-center gap-2"
+            onClick={() => handleQuickRange("last7")}
+          >
+            <span
+              className={`w-3.5 h-3.5 rounded-full border ${isQuickActive("last7")
+                ? "border-primary"
+                : "border-gray-300 dark:border-gray-500"
+                } flex items-center justify-center`}
+            >
+              {isQuickActive("last7") && (
+                <span className="w-2 h-2 rounded-full bg-primary" />
+              )}
+            </span>
+            {isThai ? "7 วันที่ผ่านมา" : "Last 7 days"}
+          </button>
+          <button
+            type="button"
+            className="w-full px-2 py-1 text-sm rounded-md text-left hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 flex items-center gap-2"
+            onClick={() => handleQuickRange("last14")}
+          >
+            <span
+              className={`w-3.5 h-3.5 rounded-full border ${isQuickActive("last14")
+                ? "border-primary"
+                : "border-gray-300 dark:border-gray-500"
+                } flex items-center justify-center`}
+            >
+              {isQuickActive("last14") && (
+                <span className="w-2 h-2 rounded-full bg-primary" />
+              )}
+            </span>
+            {isThai ? "14 วันที่ผ่านมา" : "Last 14 days"}
+          </button>
+          <button
+            type="button"
+            className="w-full px-2 py-1 text-sm rounded-md text-left hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 flex items-center gap-2"
+            onClick={() => handleQuickRange("thisMonth")}
+          >
+            <span
+              className={`w-3.5 h-3.5 rounded-full border ${isQuickActive("thisMonth")
+                ? "border-primary"
+                : "border-gray-300 dark:border-gray-500"
+                } flex items-center justify-center`}
+            >
+              {isQuickActive("thisMonth") && (
+                <span className="w-2 h-2 rounded-full bg-primary" />
+              )}
+            </span>
+            {isThai ? "เดือนนี้" : "This month"}
+          </button>
+          <button
+            type="button"
+            className="w-full px-2 py-1 text-sm rounded-md text-left hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 flex items-center gap-2"
+            onClick={() => handleQuickRange("lastMonth")}
+          >
+            <span
+              className={`w-3.5 h-3.5 rounded-full border ${isQuickActive("lastMonth")
+                ? "border-primary"
+                : "border-gray-300 dark:border-gray-500"
+                } flex items-center justify-center`}
+            >
+              {isQuickActive("lastMonth") && (
+                <span className="w-2 h-2 rounded-full bg-primary" />
+              )}
+            </span>
+            {isThai ? "เดือนที่ผ่านมา" : "Last month"}
+          </button>
+        </div>
+        <div className="flex gap-4">
+          {renderMonth(cur, "left")}
+          {renderMonth(addMonths(cur, 1), "right")}
+        </div>
+      </div>
+      <div className="flex justify-end gap-2 mt-3 px-1 text-sm">
+        <button
+          type="button"
+          className="px-3 py-1.5 text-sm rounded-md border border-gray-200 text-gray-600 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
+          onClick={onCancel}
+        >
+          {isThai ? "ยกเลิก" : "Cancel"}
+        </button>
+        <button
+          type="button"
+          className="px-3 py-1.5 text-sm rounded-md bg-primary text-white hover:bg-primary/90 disabled:opacity-60"
+          onClick={() => onConfirm(draftStart, draftEnd ?? draftStart)}
+          disabled={!draftStart}
+        >
+          {isThai ? "ยืนยันช่วงวันที่" : "Apply range"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+interface AdTargeting {
+  countries: string[];
+  ageMin: number | null;
+  ageMax: number | null;
+  interests: string[];
+}
+
+interface AdRow {
+  id: string;
+  name: string;
+  accountId: string;
+  accountName: string;
+  pageId: string | null;
+  pageName: string | null;
+  pageUsername: string | null;
+  image: string;
+  targeting: AdTargeting;
+  objective: string | null;
+  budget: number;
+  reach: number;
+  impressions: number;
+  engagement: number;
+  clicks: number;
+  messages: number;
+  result: number;
+  spend: number;
+  costPerResult: number;
+  status: string;
+  adsManagerUrl: string;
+  adPostUrl: string | null;
+}
+
+export function AdsTab() {
+  const { language } = useTheme();
+  const isThai = language === "th";
+  const locale = isThai ? th : enUS;
+
+  const [ads, setAds] = useState<AdRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [isHydrated, setIsHydrated] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const rowsPerPage = 25;
+
+  const searchParams = useSearchParams();
+
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [fromDateCustom, setFromDateCustom] = useState<Date | null>(null);
+  const [toDateCustom, setToDateCustom] = useState<Date | null>(null);
+  const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
+  const [visibleColumns, setVisibleColumns] = useState({
+    account: true,
+    adName: true,
+    page: true,
+    targeting: true,
+    status: true,
+    budget: true,
+    result: true,
+    cpr: true,
+    reach: true,
+    impressions: true,
+    engagement: true,
+    clicks: true,
+    messages: true,
+    spend: true,
+  });
+  const [updatingIds, setUpdatingIds] = useState<string[]>([]);
+  const [dropdownMounted, setDropdownMounted] = useState(false);
+
+  useEffect(() => {
+    setDropdownMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const urlAccountId = searchParams.get("accountId");
+    const savedSearch = localStorage.getItem("ads_search") || "";
+    const savedFrom = localStorage.getItem("ads_fromDate");
+    const savedTo = localStorage.getItem("ads_toDate");
+    const initialFrom = savedFrom ? new Date(savedFrom) : subDays(new Date(), 6);
+    const initialTo = savedTo ? new Date(savedTo) : new Date();
+
+    setFromDateCustom(initialFrom);
+    setToDateCustom(initialTo);
+    setSearch(savedSearch);
+    setDebouncedSearch(savedSearch);
+
+    let initialAccounts: string[] = [];
+    if (urlAccountId) initialAccounts = [urlAccountId];
+    else {
+      try {
+        const parsed = JSON.parse(localStorage.getItem("ads_selectedAccounts") || "[]");
+        if (Array.isArray(parsed)) initialAccounts = parsed;
+      } catch { }
+    }
+
+    const savedCols = localStorage.getItem("ads_visibleColumns");
+    if (savedCols) {
+      try {
+        setVisibleColumns(prev => ({ ...prev, ...JSON.parse(savedCols) }));
+      } catch { }
+    }
+    const savedSort = localStorage.getItem("ads_sortConfig");
+    if (savedSort) {
+      try {
+        setSortConfig(JSON.parse(savedSort));
+      } catch { }
+    }
+    const savedPage = localStorage.getItem("ads_currentPage");
+    if (savedPage) setCurrentPage(parseInt(savedPage, 10) || 1);
+
+    (async () => {
+      const maRes = await fetch("/api/manager-accounts");
+      const maData = await maRes.json().catch(() => []);
+      if (Array.isArray(maData)) {
+        const active = maData.filter((a: { isActive?: boolean }) => a.isActive);
+        
+        // Ensure unique account IDs for the dropdown options
+        const uniqueAccounts: { id: string; name: string }[] = [];
+        const seenIds = new Set<string>();
+        for (const a of active) {
+          if (!seenIds.has(a.accountId)) {
+            seenIds.add(a.accountId);
+            uniqueAccounts.push({ id: a.accountId, name: a.name });
+          }
+        }
+        
+        setManagerAccounts(uniqueAccounts);
+        
+        const activeIds = uniqueAccounts.map((a) => a.id);
+        const merged = new Set(initialAccounts);
+        activeIds.forEach((id: string) => merged.add(id));
+        setSelectedAccounts(Array.from(merged));
+      } else {
+        setSelectedAccounts(initialAccounts);
+      }
+      setIsHydrated(true);
+    })();
+  }, []);
+
+  // Debounce search input
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  // Refetch when filters change (after hydration)
+  useEffect(() => {
+    if (!isHydrated) return;
+    fetchAds();
+  }, [debouncedSearch, selectedAccounts, isHydrated]);
+
+  useEffect(() => {
+    if (!isHydrated) return;
+    if (fromDateCustom) {
+      localStorage.setItem("ads_fromDate", fromDateCustom.toISOString());
+    } else {
+      localStorage.removeItem("ads_fromDate");
+    }
+  }, [fromDateCustom, isHydrated]);
+
+  useEffect(() => {
+    if (!isHydrated) return;
+    if (toDateCustom) {
+      localStorage.setItem("ads_toDate", toDateCustom.toISOString());
+    } else {
+      localStorage.removeItem("toDateCustom");
+    }
+  }, [toDateCustom, isHydrated]);
+
+  useEffect(() => {
+    if (!isHydrated) return;
+    localStorage.setItem("ads_search", search);
+  }, [search, isHydrated]);
+
+  useEffect(() => {
+    if (!isHydrated) return;
+    localStorage.setItem("ads_selectedAccounts", JSON.stringify(selectedAccounts));
+  }, [selectedAccounts, isHydrated]);
+
+  useEffect(() => {
+    if (!isHydrated) return;
+    localStorage.setItem("ads_visibleColumns", JSON.stringify(visibleColumns));
+  }, [visibleColumns, isHydrated]);
+
+  const [showCal, setShowCal] = useState(false);
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: "asc" | "desc" } | null>({ key: "status", direction: "asc" });
+
+  const hasMounted = useRef(false);
+  const calRef = useRef<HTMLDivElement | null>(null);
+
+  const [managerAccounts, setManagerAccounts] = useState<{ id: string; name: string }[]>([]);
+
+  const formatStatus = (s: string, spend: number) => {
+    const k = s.toUpperCase();
+    const hasStats = spend > 0;
+
+    if (["ACTIVE"].includes(k) || k === "ACTIVE") return isThai ? "กำลังใช้งาน" : "Active";
+    if (["PENDING_REVIEW", "IN_PROCESS", "PREAPPROVED"].includes(k)) return isThai ? "กำลังตรวจสอบ" : "Review";
+    if (["PAUSED", "CAMPAIGN_PAUSED", "ADSET_PAUSED"].includes(k)) return isThai ? "ปิดโฆษณา/หยุดชั่วคราว" : "Ads off";
+    if (["DISAPPROVED"].includes(k)) {
+      return hasStats
+        ? (isThai ? "ถูกปฏิเสธ (Inactive)" : "Inactive(Content)")
+        : (isThai ? "ถูกปฏิเสธ" : "Fail(Content)");
+    }
+    if (["WITH_ISSUES", "ADACCOUNT_DISABLED", "CAMPAIGN_GROUP_DISABLED", "NO_CREDIT_CARD_ERROR"].includes(k)) {
+      return hasStats
+        ? (isThai ? "เกิดข้อผิดพลาดในการแสดงโฆษณา (Inactive)" : "Inactive(Acc/Page)")
+        : (isThai ? "เกิดข้อผิดพลาดในการแสดงโฆษณา" : "Fail(Acc/Page)");
+    }
+    if (["DELETED", "ARCHIVED"].includes(k)) return isThai ? "ลบแล้ว" : "Deleted";
+
+    // Fallback original parsing just in case
+    const low = s.toLowerCase();
+    if (low.includes("active")) return isThai ? "กำลังใช้งาน" : "Active";
+    if (low.includes("paused")) return isThai ? "ปิดโฆษณา/หยุดชั่วคราว" : "Ads off";
+    if (low.includes("deleted")) return isThai ? "ลบแล้ว" : "Deleted";
+
+    return s || "Review";
+  };
+
+  const getStatusColor = (s: string, spend: number) => {
+    const formatted = formatStatus(s, spend);
+    if (formatted.includes("กำลังใช้งาน") || formatted === "Active") return "bg-green-500";
+    if (formatted.includes("กำลังตรวจสอบ") || formatted === "Review") return "bg-teal-500";
+    if (formatted.includes("ปิดโฆษณา") || formatted === "Ads off") return "bg-gray-400";
+    if (formatted.includes("ถูกปฏิเสธ") || formatted.includes("Fail(Content)")) return "bg-red-500";
+    if (formatted.includes("เกิดข้อผิดพลาด") || formatted.includes("Fail(Acc/Page)")) return "bg-red-500";
+    if (formatted.includes("Inactive")) return "bg-orange-500";
+    if (formatted.includes("ลบแล้ว") || formatted === "Deleted") return "bg-red-700";
+    return "bg-slate-400";
+  };
+
+  const isAdOn = (s: string, spend: number) => {
+    const formatted = formatStatus(s, spend);
+    return formatted === "Active" || formatted.includes("กำลังใช้งาน");
+  };
+  const filteredAds = useMemo(() => {
+    if (!selectedAccounts.length) return ads;
+    return ads.filter(ad => selectedAccounts.includes(ad.accountId) || selectedAccounts.includes(`act_${ad.accountId}`));
+  }, [ads, selectedAccounts]);
+
+  const sortedAds = useMemo(() => {
+    const list = [...filteredAds];
+    if (!sortConfig) return list;
+
+    const { key, direction } = sortConfig;
+    const mod = direction === "desc" ? -1 : 1;
+
+    return list.sort((a, b) => {
+      if (key === "budget") return (a.budget - b.budget) * mod;
+      if (key === "reach") return (a.reach - b.reach) * mod;
+      if (key === "impressions") return (a.impressions - b.impressions) * mod;
+      if (key === "engagement") return (a.engagement - b.engagement) * mod;
+      if (key === "clicks") return (a.clicks - b.clicks) * mod;
+      if (key === "messages") return (a.messages - b.messages) * mod;
+      if (key === "result") return (a.result - b.result) * mod;
+      if (key === "spend") return (a.spend - b.spend) * mod;
+      if (key === "cpr") return (a.costPerResult - b.costPerResult) * mod;
+      if (key === "status") {
+        const statA = formatStatus(a.status, a.spend);
+        const statB = formatStatus(b.status, b.spend);
+        return statA.localeCompare(statB) * mod;
+      }
+      return 0;
+    });
+  }, [filteredAds, sortConfig]);
+
+  const totals = useMemo(() => {
+    const base = { budget: 0, reach: 0, impressions: 0, engagement: 0, clicks: 0, messages: 0, result: 0, spend: 0, avgCpr: 0 };
+    if (!sortedAds.length) return base;
+
+    let totalBudget = 0;
+    let totalReach = 0;
+    let totalImpressions = 0;
+    let totalEngagement = 0;
+    let totalClicks = 0;
+    let totalMessages = 0;
+    let totalResult = 0;
+    let totalSpend = 0;
+
+    for (const ad of sortedAds) {
+      totalBudget += Number(ad.budget) || 0;
+      totalReach += Number(ad.reach) || 0;
+      totalImpressions += Number(ad.impressions) || 0;
+      totalEngagement += Number(ad.engagement) || 0;
+      totalClicks += Number(ad.clicks) || 0;
+      totalMessages += Number(ad.messages) || 0;
+      totalResult += Number(ad.result) || 0;
+      totalSpend += Number(ad.spend) || 0;
+    }
+
+    const avgCpr = totalResult > 0 ? totalSpend / totalResult : 0;
+    return { budget: totalBudget, reach: totalReach, impressions: totalImpressions, engagement: totalEngagement, clicks: totalClicks, messages: totalMessages, result: totalResult, spend: totalSpend, avgCpr };
+  }, [sortedAds]);
+
+  const paginatedAds = useMemo(() => {
+    const start = (currentPage - 1) * rowsPerPage;
+    return sortedAds.slice(start, start + rowsPerPage);
+  }, [sortedAds, currentPage, rowsPerPage]);
+
+  const totalPages = Math.ceil(sortedAds.length / rowsPerPage);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedAccounts, debouncedSearch, fromDateCustom, toDateCustom]);
+
+  const handleSort = (key: string) => {
+    let direction: "asc" | "desc" = "desc";
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === "desc") {
+      direction = "asc";
+    } else if (sortConfig && sortConfig.key === key && sortConfig.direction === "asc") {
+      setSortConfig(null);
+      return;
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const handleRefresh = () => {
+    if (loading) return;
+    fetchAds(undefined, undefined, true);
+  };
+
+  const handleToggleStatus = async (ad: AdRow) => {
+    // optimistic toggle ACTIVE/PAUSED
+    const currentlyOn = isAdOn(ad.status, ad.spend);
+    const targetStatus = currentlyOn ? "PAUSED" : "ACTIVE";
+
+    if (updatingIds.includes(ad.id)) return;
+    setUpdatingIds((prev) => [...prev, ad.id]);
+
+    // optimistic UI update
+    setAds((prev) =>
+      prev.map((row) =>
+        row.id === ad.id ? { ...row, status: targetStatus } : row
+      )
+    );
+
+    try {
+      const res = await fetch("/api/ads/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ adId: ad.id, status: targetStatus }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || "Failed to update status");
+      }
+      toast.success(
+        isThai
+          ? targetStatus === "ACTIVE"
+            ? "เปิดโฆษณาแล้ว"
+            : "ปิดโฆษณาแล้ว"
+          : targetStatus === "ACTIVE"
+          ? "Ad turned on"
+          : "Ad paused"
+      );
+    } catch (e: unknown) {
+      // rollback
+      setAds((prev) =>
+        prev.map((row) =>
+          row.id === ad.id ? { ...row, status: ad.status } : row
+        )
+      );
+      toast.error(
+        e instanceof Error
+          ? e.message
+          : isThai
+          ? "อัปเดตสถานะไม่สำเร็จ"
+          : "Failed to update status"
+      );
+    } finally {
+      setUpdatingIds((prev) => prev.filter((id) => id !== ad.id));
+    }
+  };
+
+  const fetchAds = async (
+    overrideFrom?: Date | null,
+    overrideTo?: Date | null,
+    forceRefresh: boolean = false,
+    overrideSearch?: string
+  ) => {
+    setLoading(true);
+    try {
+      let fromDate: Date;
+      let toDate: Date;
+
+      const effFrom = overrideFrom ?? fromDateCustom;
+      const effTo = overrideTo ?? toDateCustom;
+      const effSearch = overrideSearch ?? debouncedSearch;
+
+      if (effFrom && effTo) {
+        fromDate = effFrom;
+        toDate = effTo;
+      } else if (effFrom && !effTo) {
+        fromDate = effFrom;
+        toDate = effFrom;
+      } else {
+        toDate = new Date();
+        fromDate = subDays(toDate, 6);
+      }
+
+      const from = format(fromDate, "yyyy-MM-dd");
+      const to = format(toDate, "yyyy-MM-dd");
+
+      const params = new URLSearchParams({
+        from,
+        to,
+      });
+      if (effSearch.trim()) params.set("search", effSearch.trim());
+      if (forceRefresh) params.set("refresh", "true");
+
+      const res = await fetch(`/api/ads/insights?${params.toString()}`);
+      const data = await res.json();
+      if (res.ok) {
+        const list: AdRow[] = Array.isArray(data.ads) ? data.ads : [];
+        setAds(list);
+      } else {
+        console.error(data.error || "Failed to load ads");
+        setAds([]);
+      }
+    } catch (err) {
+      console.error(err);
+      setAds([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
+  useEffect(() => {
+    const h = (e: MouseEvent) => {
+      if (calRef.current && !calRef.current.contains(e.target as Node)) {
+        setShowCal(false);
+      }
+    };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+
+  const formatCurrency = (v: number | null | undefined) =>
+    (Number(v) || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+
+
+  return (
+    <div className="flex flex-col h-full space-y-4">
+      <Card className="border-0 shadow-none bg-transparent flex-1 flex flex-col min-h-0">
+        {/* ── Filter section ── */}
+        <div className="px-4 pt-4 pb-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-end">
+            <div className="flex-1 space-y-1 relative z-20">
+              <label className="text-xs font-medium text-gray-600 dark:text-gray-300">
+                {isThai ? "ค้นหา" : "Search"}
+              </label>
+              <div className="relative">
+                <Search className="w-4 h-4 text-gray-400 absolute left-2 top-1/2 -translate-y-1/2" />
+                <Input
+                  className="pl-7 h-10 bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700"
+                  placeholder={
+                    isThai
+                      ? "ชื่อโฆษณา, บัญชี หรือ ID..."
+                      : "Ad name, account or ID..."
+                  }
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="w-full md:w-64 space-y-1 z-30">
+              <label className="text-xs font-medium text-gray-600 dark:text-gray-300">
+                {isThai ? "บัญชีโฆษณา" : "Ad account"}
+              </label>
+              <MultiSelectDropdown
+                options={managerAccounts}
+                selected={selectedAccounts}
+                onChange={setSelectedAccounts}
+                placeholder={isThai ? "ทุกบัญชีโฆษณา" : "All Accounts"}
+                isThai={isThai}
+              />
+            </div>
+
+            <div className="w-full md:w-64 space-y-1" ref={calRef}>
+              <label className="text-xs font-medium text-gray-600 dark:text-gray-300">
+                {isThai ? "ช่วงวันที่ข้อมูล" : "Data date range"}
+              </label>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowCal((v) => !v)}
+                  className="flex h-10 w-full items-center gap-2 rounded-lg border border-gray-200 px-3 text-sm text-gray-900 transition-colors hover:border-primary dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+                >
+                  <Calendar className="h-4 w-4 text-gray-500" />
+                  <span className="w-full text-center">
+                    {fromDateCustom && toDateCustom
+                      ? `${format(fromDateCustom, "d MMM", {
+                        locale,
+                      })} - ${format(toDateCustom, "d MMM yyyy", { locale })}`
+                      : fromDateCustom
+                        ? format(fromDateCustom, "d MMM yyyy", { locale })
+                        : isThai
+                          ? "เลือกช่วงวันที่ (ค่าเริ่มต้น: 7 วันล่าสุด)"
+                          : "Choose date range (default: last 7 days)"}
+                  </span>
+                </button>
+                {showCal && (
+                  <div className="absolute right-0 top-full z-50 mt-1">
+                    <MiniCalendar
+                      start={fromDateCustom}
+                      end={toDateCustom}
+                      locale={locale}
+                      isThai={isThai}
+                      onConfirm={(from, to) => {
+                        setFromDateCustom(from);
+                        setToDateCustom(to);
+                        fetchAds(from, to);
+                        setShowCal(false);
+                      }}
+                      onCancel={() => {
+                        setShowCal(false);
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {dropdownMounted ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" className="h-10 px-3 bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 font-normal">
+                    <Settings2 className="w-4 h-4 mr-2" />
+                    {isThai ? "คอลัมน์" : "Columns"}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuCheckboxItem checked={visibleColumns.account} onCheckedChange={(v) => setVisibleColumns((prev: any) => ({ ...prev, account: !!v }))}>
+                    {isThai ? "บัญชีโฆษณา" : "Ad account"}
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuCheckboxItem checked={visibleColumns.adName} onCheckedChange={(v) => setVisibleColumns((prev: any) => ({ ...prev, adName: !!v }))}>
+                    {isThai ? "ชื่อโฆษณา" : "Ad name"}
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuCheckboxItem checked={visibleColumns.page} onCheckedChange={(v) => setVisibleColumns((prev: any) => ({ ...prev, page: !!v }))}>
+                    {isThai ? "เพจ" : "Page"}
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuCheckboxItem checked={visibleColumns.targeting} onCheckedChange={(v) => setVisibleColumns((prev: any) => ({ ...prev, targeting: !!v }))}>
+                    {isThai ? "กลุ่มเป้าหมาย" : "Targeting"}
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuCheckboxItem checked={visibleColumns.status} onCheckedChange={(v) => setVisibleColumns((prev: any) => ({ ...prev, status: !!v }))}>
+                    {isThai ? "สถานะ" : "Status"}
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuCheckboxItem checked={visibleColumns.budget} onCheckedChange={(v) => setVisibleColumns((prev: any) => ({ ...prev, budget: !!v }))}>
+                    {isThai ? "งบประมาณ" : "Budget"}
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuCheckboxItem checked={visibleColumns.result} onCheckedChange={(v) => setVisibleColumns((prev: any) => ({ ...prev, result: !!v }))}>
+                    {isThai ? "ผลลัพธ์" : "Results"}
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuCheckboxItem checked={visibleColumns.cpr} onCheckedChange={(v) => setVisibleColumns((prev: any) => ({ ...prev, cpr: !!v }))}>
+                    {isThai ? "ต้นทุนต่อผลลัพธ์" : "CPR"}
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuCheckboxItem checked={visibleColumns.reach} onCheckedChange={(v) => setVisibleColumns((prev: any) => ({ ...prev, reach: !!v }))}>
+                    Reach
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuCheckboxItem checked={visibleColumns.impressions} onCheckedChange={(v) => setVisibleColumns((prev: any) => ({ ...prev, impressions: !!v }))}>
+                    Impression
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuCheckboxItem checked={visibleColumns.engagement} onCheckedChange={(v) => setVisibleColumns((prev: any) => ({ ...prev, engagement: !!v }))}>
+                    Engagement
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuCheckboxItem checked={visibleColumns.clicks} onCheckedChange={(v) => setVisibleColumns((prev: any) => ({ ...prev, clicks: !!v }))}>
+                    Clicks
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuCheckboxItem checked={visibleColumns.messages} onCheckedChange={(v) => setVisibleColumns((prev: any) => ({ ...prev, messages: !!v }))}>
+                    Message
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuCheckboxItem checked={visibleColumns.spend} onCheckedChange={(v) => setVisibleColumns((prev: any) => ({ ...prev, spend: !!v }))}>
+                    {isThai ? "ยอดใช้จ่าย" : "Spend"}
+                  </DropdownMenuCheckboxItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <Button variant="outline" className="h-10 px-3 bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 font-normal" disabled>
+                <Settings2 className="w-4 h-4 mr-2" />
+                {isThai ? "คอลัมน์" : "Columns"}
+              </Button>
+            )}
+
+            <button
+              onClick={handleRefresh}
+              disabled={loading}
+              className="flex h-10 items-center justify-center gap-2 px-4 rounded-lg border border-gray-200 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:opacity-50 disabled:cursor-not-allowed dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700 transition-colors"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin text-primary" : ""}`} />
+              {isThai ? "รีเฟรช" : "Refresh"}
+            </button>
+          </div>
+        </div>
+
+        <CardContent className="p-0 flex-1 flex flex-col min-h-0 overflow-hidden">
+          {loading ? (
+            <div className="flex items-center justify-center py-10">
+              <Loader2 className="w-6 h-6 text-gray-400 animate-spin" />
+            </div>
+          ) : !filteredAds.length ? (
+            <div className="py-10 text-center text-sm text-gray-500 dark:text-gray-400">
+              {isThai
+                ? "ไม่พบโฆษณาตามเงื่อนไขที่เลือก"
+                : "No ads found for the selected filters."}
+            </div>
+          ) : (
+            <>
+              <div className="overflow-x-hidden flex-1 flex flex-col min-h-0">
+                <div className="flex-1 overflow-y-auto w-full scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-gray-800">
+                  <table className="w-full text-sm border-separate border-spacing-0">
+                    <thead className="bg-gray-50 dark:bg-gray-800/60 text-[12px] sticky top-0 z-30 shadow-sm border-gray-200 dark:border-gray-700">
+                      <tr className="[&>th]:border-t [&>th]:border-b [&>th]:border-gray-200 dark:[&>th]:border-gray-700">
+                        <th className="px-3 py-1.5 text-center font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide whitespace-nowrap w-[50px] max-w-[50px] border-r border-gray-200 dark:border-gray-700">
+                          #
+                        </th>
+                        <th className="px-3 py-3 text-center font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide whitespace-nowrap w-[70px] max-w-[70px] border-r border-gray-200 dark:border-gray-700">
+                          {isThai ? "เปิด/ปิด" : "On/Off"}
+                        </th>
+                        {visibleColumns.account && (
+                          <th className="px-3 py-3 text-left font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide whitespace-nowrap min-w-[200px] border-r border-gray-200 dark:border-gray-700">
+                            {isThai ? "บัญชีโฆษณา" : "Ad account"}
+                          </th>
+                        )}
+                        {visibleColumns.adName && (
+                          <th className="px-3 py-3 text-left font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide whitespace-nowrap min-w-[300px] border-r border-gray-200 dark:border-gray-700 sticky left-0 z-10 bg-[#F9FAFB] dark:bg-[#111827]">
+                            {isThai ? "ชื่อโฆษณา" : "Ad"}
+                          </th>
+                        )}
+                        {visibleColumns.page && (
+                          <th className="px-3 py-3 text-left font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide whitespace-nowrap min-w-[200px] border-r border-gray-200 dark:border-gray-700">
+                            {isThai ? "เพจ" : "Page"}
+                          </th>
+                        )}
+                        {visibleColumns.targeting && (
+                          <th className="px-3 py-3 text-center font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide whitespace-nowrap w-[220px] max-w-[220px] border-r border-gray-200 dark:border-gray-700">
+                            {isThai ? "กลุ่มเป้าหมาย" : "Targeting"}
+                          </th>
+                        )}
+                        {visibleColumns.status && (
+                          <th
+                            className="px-3 py-1.5 text-center font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide whitespace-nowrap cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors select-none group min-w-[150px] w-[150px] max-w-[150px] border-r border-gray-200 dark:border-gray-700"
+                            onClick={() => handleSort("status")}
+                          >
+                            <div className="flex items-center justify-center gap-1">
+                              {isThai ? "สถานะ" : "Status"}
+                              {sortConfig?.key === "status" ? (
+                                sortConfig.direction === "desc" ? <ArrowDown className="w-3 h-3 text-primary" /> : <ArrowUp className="w-3 h-3 text-primary" />
+                              ) : <ArrowUpDown className="w-3 h-3 opacity-30 group-hover:opacity-100 transition-opacity" />}
+                            </div>
+                          </th>
+                        )}
+                        {visibleColumns.budget && (
+                          <th
+                            className="px-3 py-1.5 text-right font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide whitespace-nowrap cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors select-none group border-r border-gray-200 dark:border-gray-700 w-[100px]"
+                            onClick={() => handleSort("budget")}
+                          >
+                            <div className="flex items-center justify-end gap-1">
+                              {isThai ? "งบประมาณ" : "Budget"}
+                              {sortConfig?.key === "budget" ? (
+                                sortConfig.direction === "desc" ? <ArrowDown className="w-3 h-3 text-primary" /> : <ArrowUp className="w-3 h-3 text-primary" />
+                              ) : <ArrowUpDown className="w-3 h-3 opacity-30 group-hover:opacity-100 transition-opacity" />}
+                            </div>
+                          </th>
+                        )}
+                        {visibleColumns.result && (
+                          <th
+                            className="px-3 py-1.5 text-right font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide whitespace-nowrap cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors select-none group border-r border-gray-200 dark:border-gray-700"
+                            onClick={() => handleSort("result")}
+                          >
+                            <div className="flex items-center justify-end gap-1">
+                              {isThai ? "ผลลัพธ์" : "Results"}
+                              {sortConfig?.key === "result" ? (
+                                sortConfig.direction === "desc" ? <ArrowDown className="w-3 h-3 text-primary" /> : <ArrowUp className="w-3 h-3 text-primary" />
+                              ) : <ArrowUpDown className="w-3 h-3 opacity-30 group-hover:opacity-100 transition-opacity" />}
+                            </div>
+                          </th>
+                        )}
+                        {visibleColumns.cpr && (
+                          <th
+                            className="px-3 py-1.5 text-right font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide whitespace-nowrap cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors select-none group border-r border-gray-200 dark:border-gray-700"
+                            onClick={() => handleSort("cpr")}
+                          >
+                            <div className="flex items-center justify-end gap-1">
+                              {isThai ? "ต้นทุนต่อผลลัพธ์" : "Cost / result"}
+                              {sortConfig?.key === "cpr" ? (
+                                sortConfig.direction === "desc" ? <ArrowDown className="w-3 h-3 text-primary" /> : <ArrowUp className="w-3 h-3 text-primary" />
+                              ) : <ArrowUpDown className="w-3 h-3 opacity-30 group-hover:opacity-100 transition-opacity" />}
+                            </div>
+                          </th>
+                        )}
+                        {visibleColumns.reach && (
+                          <th
+                            className="px-3 py-1.5 text-right font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide whitespace-nowrap cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors select-none group border-r border-gray-200 dark:border-gray-700 w-[100px]"
+                            onClick={() => handleSort("reach")}
+                          >
+                            <div className="flex items-center justify-end gap-1">
+                              Reach
+                              {sortConfig?.key === "reach" ? (
+                                sortConfig.direction === "desc" ? <ArrowDown className="w-3 h-3 text-primary" /> : <ArrowUp className="w-3 h-3 text-primary" />
+                              ) : <ArrowUpDown className="w-3 h-3 opacity-30 group-hover:opacity-100 transition-opacity" />}
+                            </div>
+                          </th>
+                        )}
+                        {visibleColumns.impressions && (
+                          <th
+                            className="px-3 py-1.5 text-right font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide whitespace-nowrap cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors select-none group border-r border-gray-200 dark:border-gray-700 w-[100px]"
+                            onClick={() => handleSort("impressions")}
+                          >
+                            <div className="flex items-center justify-end gap-1">
+                              Impression
+                              {sortConfig?.key === "impressions" ? (
+                                sortConfig.direction === "desc" ? <ArrowDown className="w-3 h-3 text-primary" /> : <ArrowUp className="w-3 h-3 text-primary" />
+                              ) : <ArrowUpDown className="w-3 h-3 opacity-30 group-hover:opacity-100 transition-opacity" />}
+                            </div>
+                          </th>
+                        )}
+                        {visibleColumns.engagement && (
+                          <th
+                            className="px-3 py-1.5 text-right font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide whitespace-nowrap cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors select-none group border-r border-gray-200 dark:border-gray-700 w-[100px]"
+                            onClick={() => handleSort("engagement")}
+                          >
+                            <div className="flex items-center justify-end gap-1">
+                              Engagement
+                              {sortConfig?.key === "engagement" ? (
+                                sortConfig.direction === "desc" ? <ArrowDown className="w-3 h-3 text-primary" /> : <ArrowUp className="w-3 h-3 text-primary" />
+                              ) : <ArrowUpDown className="w-3 h-3 opacity-30 group-hover:opacity-100 transition-opacity" />}
+                            </div>
+                          </th>
+                        )}
+                        {visibleColumns.clicks && (
+                          <th
+                            className="px-3 py-1.5 text-right font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide whitespace-nowrap cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors select-none group border-r border-gray-200 dark:border-gray-700 w-[100px]"
+                            onClick={() => handleSort("clicks")}
+                          >
+                            <div className="flex items-center justify-end gap-1">
+                              Clicks
+                              {sortConfig?.key === "clicks" ? (
+                                sortConfig.direction === "desc" ? <ArrowDown className="w-3 h-3 text-primary" /> : <ArrowUp className="w-3 h-3 text-primary" />
+                              ) : <ArrowUpDown className="w-3 h-3 opacity-30 group-hover:opacity-100 transition-opacity" />}
+                            </div>
+                          </th>
+                        )}
+                        {visibleColumns.messages && (
+                          <th
+                            className="px-3 py-1.5 text-right font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide whitespace-nowrap cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors select-none group border-r border-gray-200 dark:border-gray-700 w-[100px]"
+                            onClick={() => handleSort("messages")}
+                          >
+                            <div className="flex items-center justify-end gap-1">
+                              Message
+                              {sortConfig?.key === "messages" ? (
+                                sortConfig.direction === "desc" ? <ArrowDown className="w-3 h-3 text-primary" /> : <ArrowUp className="w-3 h-3 text-primary" />
+                              ) : <ArrowUpDown className="w-3 h-3 opacity-30 group-hover:opacity-100 transition-opacity" />}
+                            </div>
+                          </th>
+                        )}
+                        {visibleColumns.spend && (
+                          <th
+                            className="px-3 py-1.5 text-right font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide whitespace-nowrap cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors select-none group border-r border-gray-200 dark:border-gray-700"
+                            onClick={() => handleSort("spend")}
+                          >
+                            <div className="flex items-center justify-end gap-1">
+                              {isThai ? "ค่าใช้จ่าย" : "Spend"}
+                              {sortConfig?.key === "spend" ? (
+                                sortConfig.direction === "desc" ? <ArrowDown className="w-3 h-3 text-primary" /> : <ArrowUp className="w-3 h-3 text-primary" />
+                              ) : <ArrowUpDown className="w-3 h-3 opacity-30 group-hover:opacity-100 transition-opacity" />}
+                            </div>
+                          </th>
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody>
+                    {sortedAds
+                      .slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage)
+                      .map((ad, idx) => (
+                        <tr
+                          key={ad.id}
+                          className="[&>td]:border-b [&>td]:border-gray-200 dark:[&>td]:border-gray-700 transition-colors bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800/60"
+                        >
+                        <td className="px-3 py-1 text-xs text-gray-500 dark:text-gray-400 w-[50px] max-w-[50px] text-center border-r border-gray-200 dark:border-gray-700">
+                            {(currentPage - 1) * rowsPerPage + idx + 1}
+                          </td>
+                          <td className="px-3 py-1 text-center w-[70px] max-w-[70px] border-r border-gray-200 dark:border-gray-700">
+                            <Switch
+                              checked={isAdOn(ad.status, ad.spend)}
+                              disabled={updatingIds.includes(ad.id)}
+                              onCheckedChange={() => handleToggleStatus(ad)}
+                              aria-label={isThai ? "เปิด/ปิดโฆษณา" : "Toggle ad"}
+                              className="scale-75"
+                            />
+                          </td>
+                          {visibleColumns.account && (
+                            <td className="px-3 py-2 text-left border-r border-gray-200 dark:border-gray-700">
+                              <div className="max-w-full">
+                                <a
+                                  href={ad.adsManagerUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-sm font-normal text-gray-900 dark:text-gray-100 hover:text-primary hover:underline transition-colors block truncate whitespace-nowrap"
+                                >
+                                  {ad.accountName}
+                                </a>
+                                <div
+                                  className="text-xs text-gray-500 cursor-pointer hover:text-primary transition-colors w-fit mt-0.5 truncate whitespace-nowrap"
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(ad.accountId);
+                                    toast.success(isThai ? "คัดลอกแล้ว" : "Copied to clipboard");
+                                  }}
+                                >
+                                  {ad.accountId}
+                                </div>
+                              </div>
+                            </td>
+                          )}
+                          {visibleColumns.adName && (
+                            <td className="p-[1px] pl-2 border-r border-gray-200 dark:border-gray-700">
+                              <div className="flex items-center gap-3">
+                                <div className="w-11 h-11 rounded-sm overflow-hidden bg-gray-100 dark:bg-gray-800 flex-shrink-0">
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img
+                                    src={ad.image}
+                                    alt={ad.name}
+                                    className="w-full h-full object-cover"
+                                  />
+                                </div>
+                                <div className="min-w-0 max-w-full py-1 pr-2">
+                                  {ad.adPostUrl ? (
+                                    <a
+                                      href={ad.adPostUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-sm font-normal text-gray-900 dark:text-gray-100 hover:text-primary hover:underline transition-colors block truncate whitespace-nowrap"
+                                    >
+                                      {ad.name}
+                                    </a>
+                                  ) : (
+                                    <div className="text-sm font-normal text-gray-900 dark:text-gray-100 truncate whitespace-nowrap">
+                                      {ad.name}
+                                    </div>
+                                  )}
+                                  <div
+                                    className="text-xs text-gray-500 cursor-pointer hover:text-primary transition-colors w-fit whitespace-nowrap"
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(ad.id);
+                                      toast.success(isThai ? "คัดลอกแล้ว" : "Copied to clipboard");
+                                    }}
+                                  >
+                                    ID: {ad.id}
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                          )}
+                          {visibleColumns.page && (
+                            <td className="p-[1px] border-r border-gray-200 dark:border-gray-700">
+                              <div className="flex flex-col justify-center h-full min-w-0 max-w-full py-1 pl-2">
+                                <div className="text-sm font-normal text-gray-900 dark:text-gray-100">
+                                  {ad.pageId ? (
+                                    <a
+                                      href={`https://facebook.com/${ad.pageId}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="hover:text-primary hover:underline transition-colors block truncate whitespace-nowrap"
+                                    >
+                                      {ad.pageName ?? `Page ${ad.pageId}`}
+                                    </a>
+                                  ) : (
+                                    <span className="truncate inline-block max-w-full whitespace-nowrap">
+                                      {ad.pageName ?? "—"}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5 max-w-full whitespace-nowrap">
+                                  {ad.pageUsername ? `@${ad.pageUsername}` : "—"}
+                                </div>
+                                {ad.pageId && (
+                                  <div
+                                    className="text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-primary transition-colors w-fit mt-0.5 truncate max-w-full whitespace-nowrap"
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(ad.pageId!);
+                                      toast.success(isThai ? "คัดลอกแล้ว" : "Copied to clipboard");
+                                    }}
+                                  >
+                                    ID: {ad.pageId}
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                          )}
+                          {visibleColumns.targeting && (
+                            <td className="px-3 py-2 align-top w-[220px] max-w-[220px] border-r border-gray-200 dark:border-gray-700">
+                              <div className="text-[11px] leading-snug text-gray-700 dark:text-gray-300 space-y-0.5 max-w-[220px]">
+                                {/* Line 1: Countries */}
+                                {ad.targeting.countries.length > 0 && (
+                                  <div className="truncate whitespace-nowrap">
+                                    <span className="font-medium text-gray-500">
+                                      {isThai ? "ประเทศ:" : "Countries:"}{" "}
+                                    </span>
+                                    {ad.targeting.countries.join(", ")}
+                                  </div>
+                                )}
+                                {/* Line 2: Age */}
+                                {(ad.targeting.ageMin || ad.targeting.ageMax) && (
+                                  <div className="truncate whitespace-nowrap">
+                                    <span className="font-medium text-gray-500">
+                                      {isThai ? "อายุ:" : "Age:"}{" "}
+                                    </span>
+                                    {ad.targeting.ageMin ?? "?"}–{ad.targeting.ageMax ?? "?"}
+                                  </div>
+                                )}
+                                {/* Line 3: Interests (first + more) */}
+                                {ad.targeting.interests.length > 0 && (
+                                  <div className="flex items-center whitespace-nowrap">
+                                    <span className="font-medium text-gray-500 mr-1">
+                                      {isThai ? "ความสนใจ:" : "Interests:"}{" "}
+                                    </span>
+                                    <span className="inline-block truncate max-w-[130px]" title={ad.targeting.interests[0]}>
+                                      {ad.targeting.interests[0]}
+                                    </span>
+                                    {ad.targeting.interests.length > 1 && (
+                                      <Popover>
+                                        <PopoverTrigger className="ml-1 text-[10px] text-primary font-bold hover:underline whitespace-nowrap">
+                                          +{ad.targeting.interests.length - 1} {isThai ? "เพิ่มเติม" : "more"}
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-[320px] p-4 z-[60] shadow-xl">
+                                          <div className="font-semibold text-sm mb-3 border-b pb-2 flex justify-between items-center text-gray-900 dark:text-gray-100">
+                                            <span>{isThai ? "ความสนใจทั้งหมด" : "All Interests"}</span>
+                                            <Badge variant="secondary" className="text-[10px] font-bold px-1.5 py-0">{ad.targeting.interests.length}</Badge>
+                                          </div>
+                                          <div className="flex flex-wrap gap-2 max-h-64 overflow-y-auto pr-2">
+                                            {ad.targeting.interests.map((int, i) => (
+                                              <Badge
+                                                key={i}
+                                                variant="outline"
+                                                className="text-xs font-medium px-2 py-0.5 bg-gray-50/50 dark:bg-gray-900/50 border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300"
+                                              >
+                                                {int}
+                                              </Badge>
+                                            ))}
+                                          </div>
+                                        </PopoverContent>
+                                      </Popover>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                          )}
+                          {visibleColumns.status && (
+                            <td className="px-3 py-2 text-left min-w-[150px] max-w-[150px] border-r border-gray-200 dark:border-gray-700">
+                              <div className="flex items-center gap-2 text-sm font-normal text-gray-800 dark:text-gray-200 min-w-0">
+                                <span
+                                  className={`w-2.5 h-2.5 rounded-full shrink-0 ${getStatusColor(
+                                    ad.status,
+                                    ad.spend,
+                                  )} shadow-sm`}
+                                />
+                                <span className="line-clamp-2 break-words">
+                                  {formatStatus(ad.status, ad.spend)}
+                                </span>
+                              </div>
+                            </td>
+                          )}
+                          {visibleColumns.budget && (
+                            <td className="px-3 py-2 text-right border-r border-gray-200 dark:border-gray-700 w-[100px]">
+                              <div className="text-sm font-normal text-gray-900 dark:text-gray-100 whitespace-nowrap pr-1">
+                                {formatCurrency(ad.budget)}
+                              </div>
+                            </td>
+                          )}
+                          {visibleColumns.result && (
+                            <td className="px-3 py-2 text-right border-r border-gray-200 dark:border-gray-700">
+                              <div className="text-sm font-normal text-gray-900 dark:text-gray-100 whitespace-nowrap pr-1">
+                                {formatCurrency(ad.result)}
+                              </div>
+                            </td>
+                          )}
+                          {visibleColumns.cpr && (
+                            <td className="px-3 py-2 text-right border-r border-gray-200 dark:border-gray-700">
+                              <div className="text-sm font-normal text-gray-900 dark:text-gray-100 whitespace-nowrap pr-1">
+                                {formatCurrency(ad.costPerResult)}
+                              </div>
+                            </td>
+                          )}
+                          {visibleColumns.reach && (
+                            <td className="px-3 py-2 text-right border-r border-gray-200 dark:border-gray-700 w-[100px]">
+                              <div className="text-sm font-normal text-gray-900 dark:text-gray-100 whitespace-nowrap pr-1">
+                                {formatCurrency(ad.reach)}
+                              </div>
+                            </td>
+                          )}
+                          {visibleColumns.impressions && (
+                            <td className="px-3 py-2 text-right border-r border-gray-200 dark:border-gray-700 w-[100px]">
+                              <div className="text-sm font-normal text-gray-900 dark:text-gray-100 whitespace-nowrap pr-1">
+                                {formatCurrency(ad.impressions)}
+                              </div>
+                            </td>
+                          )}
+                          {visibleColumns.engagement && (
+                            <td className="px-3 py-2 text-right border-r border-gray-200 dark:border-gray-700 w-[100px]">
+                              <div className="text-sm font-normal text-gray-900 dark:text-gray-100 whitespace-nowrap pr-1">
+                                {formatCurrency(ad.engagement)}
+                              </div>
+                            </td>
+                          )}
+                          {visibleColumns.clicks && (
+                            <td className="px-3 py-2 text-right border-r border-gray-200 dark:border-gray-700 w-[100px]">
+                              <div className="text-sm font-normal text-gray-900 dark:text-gray-100 whitespace-nowrap pr-1">
+                                {formatCurrency(ad.clicks)}
+                              </div>
+                            </td>
+                          )}
+                          {visibleColumns.messages && (
+                            <td className="px-3 py-2 text-right border-r border-gray-200 dark:border-gray-700 w-[100px]">
+                              <div className="text-sm font-normal text-gray-900 dark:text-gray-100 whitespace-nowrap pr-1">
+                                {formatCurrency(ad.messages)}
+                              </div>
+                            </td>
+                          )}
+                          {visibleColumns.spend && (
+                            <td className="px-3 py-2 text-right border-r border-gray-200 dark:border-gray-700">
+                              <div className="text-sm font-normal text-gray-900 dark:text-gray-100 whitespace-nowrap pr-1">
+                                {formatCurrency(ad.spend)}
+                              </div>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                    {sortedAds.length > 0 && (
+                      <tfoot className="sticky bottom-0 z-10 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 shadow-[0_-1px_2px_rgba(0,0,0,0.05)]">
+                        <tr className="text-[12px] font-normal text-gray-900 dark:text-gray-100 [&>td]:border-t [&>td]:border-gray-200 dark:[&>td]:border-gray-700">
+                          <td className="px-3 py-[18px] text-center w-[50px] max-w-[50px] border-r border-gray-200 dark:border-gray-700" />
+                          <td className="px-3 py-[18px] text-center w-[70px] max-w-[70px] border-r border-gray-200 dark:border-gray-700" />
+                          {visibleColumns.account && (
+                            <td className="px-3 py-[18px] border-r border-gray-200 dark:border-gray-700" />
+                          )}
+                          {visibleColumns.adName && (
+                            <td className="p-[1px] pl-2 border-r border-gray-200 dark:border-gray-700 sticky left-0 z-10 bg-inherit" />
+                          )}
+                          {visibleColumns.page && (
+                            <td className="p-[1px] pl-2 border-r border-gray-200 dark:border-gray-700" />
+                          )}
+                          {visibleColumns.targeting && (
+                            <td className="px-3 py-[18px] w-[220px] max-w-[220px] border-r border-gray-200 dark:border-gray-700" />
+                          )}
+                          {visibleColumns.status && (
+                            <td className="px-3 py-[18px] text-left min-w-[150px] max-w-[150px] border-r border-gray-200 dark:border-gray-700">
+                              {isThai ? "รวมทั้งหมด" : "Total"}
+                            </td>
+                          )}
+                          {visibleColumns.budget && (
+                            <td className="px-3 py-[18px] text-right border-r border-gray-200 dark:border-gray-700 w-[100px]">
+                              {formatCurrency(totals.budget)}
+                            </td>
+                          )}
+                          {visibleColumns.result && (
+                            <td className="px-3 py-[18px] text-right border-r border-gray-200 dark:border-gray-700">
+                              {formatCurrency(totals.result)}
+                            </td>
+                          )}
+                          {visibleColumns.cpr && (
+                            <td className="px-3 py-[18px] text-right border-r border-gray-200 dark:border-gray-700">
+                              {formatCurrency(totals.avgCpr)}
+                            </td>
+                          )}
+                          {visibleColumns.reach && (
+                            <td className="px-3 py-[18px] text-right border-r border-gray-200 dark:border-gray-700 w-[100px]">
+                              {formatCurrency(totals.reach)}
+                            </td>
+                          )}
+                          {visibleColumns.impressions && (
+                            <td className="px-3 py-[18px] text-right border-r border-gray-200 dark:border-gray-700 w-[100px]">
+                              {formatCurrency(totals.impressions)}
+                            </td>
+                          )}
+                          {visibleColumns.engagement && (
+                            <td className="px-3 py-[18px] text-right border-r border-gray-200 dark:border-gray-700 w-[100px]">
+                              {formatCurrency(totals.engagement)}
+                            </td>
+                          )}
+                          {visibleColumns.clicks && (
+                            <td className="px-3 py-[18px] text-right border-r border-gray-200 dark:border-gray-700 w-[100px]">
+                              {formatCurrency(totals.clicks)}
+                            </td>
+                          )}
+                          {visibleColumns.messages && (
+                            <td className="px-3 py-[18px] text-right border-r border-gray-200 dark:border-gray-700 w-[100px]">
+                              {formatCurrency(totals.messages)}
+                            </td>
+                          )}
+                          {visibleColumns.spend && (
+                            <td className="px-3 py-[18px] text-right border-r border-gray-200 dark:border-gray-700">
+                              {formatCurrency(totals.spend)}
+                            </td>
+                          )}
+                        </tr>
+                      </tfoot>
+                    )}
+                  </table>
+                </div>
+              </div>
+
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between px-4 py-[18px] border-t border-gray-200 dark:border-gray-700 text-[11px] shrink-0 bg-white dark:bg-gray-900">
+                  <div className="text-sm text-gray-500 dark:text-gray-400">
+                    {isThai ? "กำลังแสดง" : "Showing"}{" "}
+                    <span className="font-medium text-gray-900 dark:text-gray-100">
+                      {Math.min((currentPage - 1) * rowsPerPage + 1, sortedAds.length)}
+                    </span>{" "}
+                    {isThai ? "ถึง" : "to"}{" "}
+                    <span className="font-medium text-gray-900 dark:text-gray-100">
+                      {Math.min(currentPage * rowsPerPage, sortedAds.length)}
+                    </span>{" "}
+                    {isThai ? "จาก" : "of"}{" "}
+                    <span className="font-medium text-gray-900 dark:text-gray-100">
+                      {sortedAds.length}
+                    </span>{" "}
+                    {isThai ? "รายการ" : "results"}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      className="h-7 px-2 text-[10px]"
+                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                      disabled={currentPage === 1}
+                    >
+                      <ChevronLeft className="w-3 h-3 mr-0.5" />
+                      {isThai ? "ก่อนหน้า" : "Previous"}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="h-7 px-2 text-[10px]"
+                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                      disabled={currentPage === totalPages}
+                    >
+                      {isThai ? "ถัดไป" : "Next"}
+                      <ChevronRight className="w-3 h-3 ml-0.5" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

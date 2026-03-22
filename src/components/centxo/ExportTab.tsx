@@ -1,0 +1,1526 @@
+"use client";
+
+import { useState, useRef, useEffect, useCallback } from "react";
+import Link from "next/link";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Search, ChevronDown, Check, X, Calendar, Save, Play, Plus, Trash2,
+  FileSpreadsheet, Clock, RefreshCw, ChevronLeft, ChevronRight, Loader2, AlertCircle, FileClock
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import { toast } from "sonner";
+import { format, addMonths, subMonths, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay } from "date-fns";
+import { th, enUS } from "date-fns/locale";
+import { useTheme } from "@/components/providers/ThemeProvider";
+
+// ---- Types ----
+interface AdAccount { id: string; accountId: string; name: string; isActive: boolean; currency?: string }
+interface SheetFile { id: string; name: string; modifiedTime?: string }
+interface SheetTab { sheetId: number; title: string; index: number }
+interface ColumnMapping { fbCol: string; sheetCol: string }
+interface ExportConfig {
+  id?: string
+  name: string
+  adAccountIds: string[]
+  googleSheetId: string
+  googleSheetName: string
+  sheetTab: string
+  columnMapping: ColumnMapping[]
+  writeMode: "append" | "overwrite"
+  isAuto: boolean
+  autoSchedule: string
+  dateRange: string
+  autoDays: number[]
+}
+
+interface ExportLog {
+  id: string;
+  configName?: string | null;
+  exportType: string;
+  sheetFileName?: string | null;
+  sheetTabName?: string | null;
+  adAccountCount: number;
+  rowCount: number;
+  dataDate?: string | null;
+  status: string;
+  error?: string | null;
+  createdAt: string;
+}
+
+interface LogsResponse {
+  logs: ExportLog[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+// ค่า fbCol สำหรับคอลัมน์ที่ต้องการเว้นว่าง (skip)
+const SKIP_FB_COL = "__skip__";
+
+const FB_COLUMNS = [
+  "date",
+  "account_id",
+  "account_name",
+  "ad_id",
+  "ad_name",
+  "adset_id",
+  "adset_name",
+  "campaign_id",
+  "campaign_name",
+  "impressions",
+  "reach",
+  "engagement",
+  "clicks",
+  "spend",
+  "cpc",
+  "cpm",
+  "ctr",
+  "frequency",
+  "conversions",
+  "cost_per_conversion",
+  "link_clicks",
+  "messages",
+  "video_avg_time",
+  "video_plays",
+  "video_3s",
+  "video_p25",
+  "video_p50",
+  "video_p75",
+  "video_p95",
+  "video_p100",
+  "video_views",
+];
+
+function GoogleSheetsIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={cn("w-[13px] h-9 text-green-600", className)}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+    >
+      <path d="M14.5 0H3C1.3 0 0 1.3 0 3v18c0 1.7 1.3 3 3 3h18c1.7 0 3-1.3 3-3V9.5L14.5 0zM17 21H7v-2h10v2zm0-4H7v-2h10v2zm0-4H7v-2h10v2zm-3-4.5V2.5L19.5 8H14z" />
+    </svg>
+  );
+}
+const SHEET_COLS = "ABCDEFGHIJKLMNOPQRST".split("");
+
+const DAYS = [
+  { id: 0, labelTh: "อา", labelEn: "Su" },
+  { id: 1, labelTh: "จ", labelEn: "Mo" },
+  { id: 2, labelTh: "อ", labelEn: "Tu" },
+  { id: 3, labelTh: "พ", labelEn: "We" },
+  { id: 4, labelTh: "พฤ", labelEn: "Th" },
+  { id: 5, labelTh: "ศ", labelEn: "Fr" },
+  { id: 6, labelTh: "ส", labelEn: "Sa" },
+];
+
+const DEFAULT_CONFIG: ExportConfig = {
+  name: "",
+  adAccountIds: [],
+  googleSheetId: "",
+  googleSheetName: "",
+  sheetTab: "",
+  // ค่าเริ่มต้นตามที่กำหนด
+  columnMapping: [
+    { fbCol: "date", sheetCol: "A" }, // date
+    { fbCol: "ad_id", sheetCol: "B" }, // ad id
+    { fbCol: SKIP_FB_COL, sheetCol: "C" }, // skip (ว่าง)
+    { fbCol: SKIP_FB_COL, sheetCol: "D" }, // skip (ว่าง)
+    { fbCol: SKIP_FB_COL, sheetCol: "E" }, // skip (ว่าง)
+    { fbCol: "reach", sheetCol: "F" }, // Reach
+    { fbCol: "impressions", sheetCol: "G" }, // Impression
+    { fbCol: "engagement", sheetCol: "H" }, // Engagement
+    { fbCol: "clicks", sheetCol: "I" }, // Click all
+    { fbCol: "messages", sheetCol: "J" }, // Message
+    { fbCol: "spend", sheetCol: "K" }, // Cost
+    { fbCol: SKIP_FB_COL, sheetCol: "L" }, // skip (ว่าง)
+    { fbCol: "video_avg_time", sheetCol: "M" }, // VDO Average Play time
+    { fbCol: "video_plays", sheetCol: "N" }, // การเล่นวีดิโอ
+    { fbCol: "video_3s", sheetCol: "O" }, // การเล่นวีดิโอ 3 วินาที
+    { fbCol: "video_p25", sheetCol: "P" }, // VDO Plays at 25%
+    { fbCol: "video_p50", sheetCol: "Q" }, // VDO Plays at 50%
+    { fbCol: "video_p75", sheetCol: "R" }, // VDO Plays at 75%
+    { fbCol: "video_p95", sheetCol: "S" }, // VDO Plays at 95%
+    { fbCol: "video_p100", sheetCol: "T" }, // VDO Plays at 100%
+  ],
+  writeMode: "append",
+  isAuto: false,
+  autoSchedule: "08:00",
+  dateRange: "today",
+  autoDays: [0, 1, 2, 3, 4, 5, 6],
+};
+
+// ---- Multi-select dropdown ----
+function MultiSelectDropdown({
+  options, selected, onChange, placeholder, loading, error, t,
+}: {
+  options: AdAccount[]; selected: string[]; onChange: (ids: string[]) => void;
+  placeholder: string; loading?: boolean; error?: string; t: (path: string) => string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+
+  const filtered = options.filter(
+    (o) => o.name.toLowerCase().includes(search.toLowerCase()) || o.id.includes(search)
+  );
+  const toggle = (id: string) => onChange(selected.includes(id) ? selected.filter((s) => s !== id) : [...selected, id]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => !loading && setOpen(!open)}
+        className={cn(
+          "flex items-center justify-between w-full h-10 px-3 text-sm border rounded-lg bg-white dark:bg-gray-800 transition-colors focus:outline-none focus:ring-2 focus:ring-primary",
+          error ? "border-red-400" : "border-gray-200 dark:border-gray-700 hover:border-primary"
+        )}
+      >
+        {loading ? (
+          <span className="flex items-center gap-2 text-gray-400">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" /> {t("export.loading")}
+          </span>
+        ) : error ? (
+          <span className="flex items-center gap-2 text-red-500">
+            <AlertCircle className="w-3.5 h-3.5" />
+            {error}
+          </span>
+        ) : (
+          <span className={cn("truncate", !selected.length && "text-gray-400")}>
+            {!selected.length
+              ? placeholder
+              : selected.length === 1
+                ? options.find((o) => o.id === selected[0])?.name
+                : `${selected.length} ${t("export.selectedAccounts")}`}
+          </span>
+        )}
+        <div className="flex items-center gap-2 shrink-0 ml-2">
+          {!!selected.length && (
+            <span onClick={(e) => { e.stopPropagation(); onChange([]); }} className="text-gray-400 hover:text-gray-600 cursor-pointer">
+              <X className="w-3.5 h-3.5" />
+            </span>
+          )}
+          <ChevronDown className={cn("w-4 h-4 text-gray-400 transition-transform", open && "rotate-180")} />
+        </div>
+      </button>
+
+      {open && !loading && !error && (
+        <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg">
+          <div className="p-2 border-b border-gray-100 dark:border-gray-700">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+              <input
+                type="text"
+                placeholder={t("export.searchAccounts")}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 focus:outline-none focus:ring-1 focus:ring-primary text-gray-900 dark:text-gray-100 placeholder:text-gray-400"
+                onClick={(e) => e.stopPropagation()}
+              />
+            </div>
+          </div>
+          <div className="flex justify-between items-center px-3 py-1.5 border-b border-gray-100 dark:border-gray-700 text-xs">
+            <div className="flex gap-2 items-center">
+              <button onClick={() => onChange(filtered.map((o) => o.id))} className="text-primary hover:underline">
+                {t("export.selectAll")}
+              </button>
+              <span className="text-gray-300">|</span>
+              <button onClick={() => onChange([])} className="text-gray-500 hover:underline">
+                {t("export.clear")}
+              </button>
+              {!!selected.length && (
+                <span className="text-gray-500 ml-1">{selected.length} {t("common.selected") || (t("export.selected") || "เลือก")}</span>
+              )}
+            </div>
+            <button onClick={() => setOpen(false)} className="text-teal-600 hover:text-teal-700 font-medium px-2.5 py-1 rounded-md bg-teal-50 hover:bg-teal-100 dark:text-teal-400 dark:bg-teal-900/30 dark:hover:bg-teal-900/50 transition-colors">ตกลง</button>
+          </div>
+          <div className="max-h-52 overflow-y-auto p-1">
+            {filtered.length === 0 ? (
+              <div className="py-4 text-center text-sm text-gray-500">{t("export.noAccountsFound")}</div>
+            ) : (
+              filtered.map((opt) => (
+                <div
+                  key={opt.id}
+                  onClick={() => toggle(opt.id)}
+                  className="flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
+                >
+                  <div
+                    className={cn(
+                      "w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors",
+                      selected.includes(opt.id)
+                        ? "bg-primary border-primary"
+                        : "border-gray-300 dark:border-gray-500",
+                    )}
+                  >
+                    {selected.includes(opt.id) && <Check className="w-3 h-3 text-white" />}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm text-gray-900 dark:text-gray-100 truncate">
+                      {opt.name}
+                    </p>
+                    <p className="text-xs text-gray-400">
+                      {opt.id}
+                      {opt.currency ? ` · ${opt.currency}` : ""}
+                    </p>
+                  </div>
+                  {!opt.isActive && (
+                    <Badge variant="secondary" className="text-xs ml-auto">
+                      {t("common.disabled") || (t("export.disabled") || "ปิดใช้งาน")}
+                    </Badge>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---- Single-select Sheet dropdown with search ----
+function SheetDropdown({
+  sheets,
+  value,
+  onChange,
+  placeholder,
+  loading,
+  error,
+  t,
+}: {
+  sheets: SheetFile[];
+  value: string;
+  onChange: (id: string, name: string) => void;
+  placeholder: string;
+  loading?: boolean;
+  error?: string;
+  t: (path: string) => string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [remoteSheets, setRemoteSheets] = useState<SheetFile[] | null>(null);
+  const [remoteLoading, setRemoteLoading] = useState(false);
+  const [remoteError, setRemoteError] = useState<string | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // ปิด dropdown เมื่อคลิกนอกกรอบ
+  useEffect(() => {
+    const h = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", h);
+
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+
+  // ค้นหาจาก Google Sheets ผ่าน API เมื่อมีการพิมพ์ค้นหา
+  useEffect(() => {
+    if (!open) return;
+    const q = search.trim();
+    if (!q) {
+      setRemoteSheets(null);
+      setRemoteError(null);
+      setRemoteLoading(false);
+      return;
+    }
+
+    setRemoteLoading(true);
+    const controller = new AbortController();
+    const id = setTimeout(() => {
+      fetch(`/api/google/sheets?search=${encodeURIComponent(q)}`, {
+        signal: controller.signal,
+      })
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.error) {
+            setRemoteError(d.error);
+            setRemoteSheets([]);
+          } else {
+            setRemoteError(null);
+            setRemoteSheets(d.files ?? []);
+          }
+        })
+        .catch((e) => {
+          if (e.name === "AbortError") return;
+          setRemoteError(t("export.searchFilesError") || "ไม่สามารถค้นหาไฟล์ได้");
+          setRemoteSheets([]);
+        })
+        .finally(() => setRemoteLoading(false));
+    }, 300);
+
+    return () => {
+      controller.abort();
+      clearTimeout(id);
+    };
+  }, [open, search]);
+
+  const baseList = remoteSheets ?? sheets;
+  const current = baseList.find((s) => s.id === value) ?? null;
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => !loading && setOpen((o) => !o)}
+        className={cn(
+          "flex h-10 w-full items-center justify-between rounded-lg border bg-white px-3 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary cursor-pointer",
+          error && "border-red-400"
+        )}
+      >
+        {loading ? (
+          <span className="flex items-center gap-2 text-gray-400">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" /> {t("export.loading")}
+          </span>
+        ) : error ? (
+          <span className="flex items-center gap-2 text-red-500">
+            <AlertCircle className="w-3.5 h-3.5" />
+            {error}
+          </span>
+        ) : current ? (
+          <span className="flex items-center gap-2 truncate">
+            <GoogleSheetsIcon className="shrink-0" />
+            <span className="truncate">{current.name}</span>
+          </span>
+        ) : (
+          <span className="text-gray-400 truncate">{placeholder}</span>
+        )}
+        <ChevronDown
+          className={cn(
+            "ml-2 h-4 w-4 text-gray-400 transition-transform",
+            open && "rotate-180"
+          )}
+        />
+      </button>
+
+      {open && !loading && !error && (
+        <div className="absolute z-50 mt-1 w-full overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
+          <div className="border-b border-gray-100 p-2 dark:border-gray-700">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                placeholder={t("export.searchFiles")}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="h-8 w-full rounded-lg border border-gray-200 bg-gray-50 pl-8 pr-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-primary dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
+              />
+            </div>
+          </div>
+          <div className="max-h-64 overflow-y-auto">
+            {remoteLoading ? (
+              <div className="flex items-center justify-center px-3 py-3 text-xs text-gray-500">
+                <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                {t("export.searching")}
+              </div>
+            ) : remoteError ? (
+              <div className="px-3 py-3 text-center text-xs text-red-500">
+                {remoteError}
+              </div>
+            ) : baseList.length === 0 ? (
+              <div className="px-3 py-3 text-center text-sm text-gray-500">
+                {t("export.noFilesFound")}
+              </div>
+            ) : (
+              baseList.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => {
+                    onChange(s.id, s.name);
+                    setOpen(false);
+                  }}
+                  className={cn(
+                    "flex w-full px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 items-start gap-3 cursor-pointer",
+                    s.id === value && "bg-primary/10 text-primary dark:bg-primary/40"
+                  )}
+                >
+                  <GoogleSheetsIcon className="mt-0.5 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="truncate text-gray-900 dark:text-gray-100 font-medium">
+                      {s.name}
+                    </p>
+                    {s.modifiedTime && (
+                      <p className="mt-0.5 text-[10px] text-gray-400">
+                        {t("export.lastModified")}{" "}
+                        {format(new Date(s.modifiedTime), "d MMM yyyy", { locale: th })}
+                      </p>
+                    )}
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---- Single-select Tab dropdown (Sheet tab) ----
+function TabDropdown({
+  tabs,
+  value,
+  onChange,
+  placeholder,
+  disabled,
+  loading,
+  t,
+}: {
+  tabs: SheetTab[];
+  value: string;
+  onChange: (val: string) => void;
+  placeholder: string;
+  disabled?: boolean;
+  loading?: boolean;
+  t: (path: string) => string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const h = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+
+  const current = tabs.find((t) => t.title === value) ?? null;
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        disabled={disabled || loading || !tabs.length}
+        onClick={() => setOpen((o) => !o)}
+        className={cn(
+          "flex h-10 w-full items-center justify-between rounded-lg border bg-white px-3 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer",
+        )}
+      >
+        {loading ? (
+          <span className="flex items-center gap-2 text-gray-400">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" /> {t("export.loading")}
+          </span>
+        ) : !tabs.length ? (
+          <span className="text-gray-400 truncate">
+            {!disabled ? "ไม่พบชีต" : placeholder}
+          </span>
+        ) : current ? (
+          <span className="truncate">{current.title}</span>
+        ) : (
+          <span className="text-gray-400 truncate">{placeholder}</span>
+        )}
+        <ChevronDown
+          className={cn(
+            "ml-2 h-4 w-4 text-gray-400 transition-transform",
+            open && "rotate-180"
+          )}
+        />
+      </button>
+      {open && !loading && !!tabs.length && !disabled && (
+        <div className="absolute z-50 mt-1 w-full overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
+          <div className="max-h-60 overflow-y-auto py-1">
+            {tabs.map((t) => (
+              <button
+                key={t.sheetId}
+                type="button"
+                onClick={() => {
+                  onChange(t.title);
+                  setOpen(false);
+                }}
+                className={cn(
+                  "flex w-full items-center px-3 py-1.5 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer",
+                  t.title === value &&
+                  "bg-primary/10 text-primary dark:bg-primary/40 dark:text-teal-100"
+                )}
+              >
+                <span className="truncate">{t.title}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---- Mini Calendar ----
+function MiniCalendar({
+  value,
+  onChange,
+  locale,
+  isThai,
+}: {
+  value: Date | null;
+  onChange: (d: Date) => void;
+  locale: typeof th;
+  isThai: boolean;
+}) {
+  const [cur, setCur] = useState(new Date());
+  const days = eachDayOfInterval({ start: startOfMonth(cur), end: endOfMonth(cur) });
+  const firstDay = startOfMonth(cur).getDay();
+
+  return (
+    <div className="p-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg w-72">
+      <div className="flex items-center justify-between mb-3">
+        <button
+          onClick={() => setCur(subMonths(cur, 1))}
+          className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
+        >
+          <ChevronLeft className="w-4 h-4" />
+        </button>
+        <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+          {format(cur, "MMMM yyyy", { locale })}
+        </span>
+        <button
+          onClick={() => setCur(addMonths(cur, 1))}
+          className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
+        >
+          <ChevronRight className="w-4 h-4" />
+        </button>
+      </div>
+      <div className="grid grid-cols-7 mb-1">
+        {DAYS.map((d) => (
+          <div
+            key={d.id}
+            className="text-center text-xs text-gray-400 py-1"
+          >
+            {isThai ? d.labelTh : d.labelEn}
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7 gap-0.5">
+        {Array.from({ length: firstDay }).map((_, i) => (
+          <div key={`e${i}`} />
+        ))}
+        {days.map((day) => {
+          const sel = value ? isSameDay(day, value) : false;
+          const today = isSameDay(day, new Date());
+          return (
+            <button
+              key={day.toISOString()}
+              onClick={() => onChange(day)}
+              className={cn(
+                "w-full aspect-square flex items-center justify-center text-xs rounded-lg transition-colors",
+                sel
+                  ? "bg-primary text-white"
+                  : today
+                    ? "bg-primary/10 dark:bg-primary/30 text-primary dark:text-primary font-medium"
+                    : "hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300",
+              )}
+            >
+              {format(day, "d")}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ---- Main Page ----
+export function ExportTab() {
+  const [adAccounts, setAdAccounts] = useState<AdAccount[]>([]);
+  const [accountsLoading, setAccountsLoading] = useState(true);
+  const [accountsError, setAccountsError] = useState("");
+
+  const [sheets, setSheets] = useState<SheetFile[]>([]);
+  const [sheetsLoading, setSheetsLoading] = useState(true);
+  const [sheetsError, setSheetsError] = useState("");
+
+  const [tabs, setTabs] = useState<SheetTab[]>([]);
+  const [tabsLoading, setTabsLoading] = useState(false);
+
+  const [savedConfigs, setSavedConfigs] = useState<ExportConfig[]>([]);
+  const [cfg, setCfg] = useState<ExportConfig>({ ...DEFAULT_CONFIG });
+  const [activeConfigId, setActiveConfigId] = useState<string | null>(null);
+
+  // --- Delete Confirmation State ---
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [configToDelete, setConfigToDelete] = useState<{ id: string, name: string } | null>(null);
+
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [showCal, setShowCal] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const calRef = useRef<HTMLDivElement>(null);
+
+  const { language, t } = useTheme();
+  const isThai = language === "th";
+  const locale = isThai ? th : enUS;
+
+  // fetch ad accounts: ใช้ได้เฉพาะบัญชีที่เลือกใช้งานใน Settings (ManagerAccounts ที่ isActive = true)
+  useEffect(() => {
+    fetch("/api/manager-accounts")
+      .then((r) => r.json())
+      .then((data) => {
+        if (!Array.isArray(data)) {
+          throw new Error("โหลดบัญชีไม่สำเร็จ");
+        }
+        const active = data.filter((acc: any) => acc.isActive);
+        if (!active.length) {
+          setAdAccounts([]);
+          setAccountsError("ยังไม่มีบัญชีที่เลือกใช้งาน กรุณาไปเลือกในหน้า Settings");
+        } else {
+          const mapped: AdAccount[] = active.map((acc: any) => ({
+            id: acc.accountId,
+            accountId: acc.accountId,
+            name: acc.name,
+            isActive: true,
+          }));
+          setAdAccounts(mapped);
+          setAccountsError("");
+        }
+      })
+      .catch((e) => setAccountsError(e.message))
+      .finally(() => setAccountsLoading(false));
+  }, []);
+
+  // fetch Google Sheets
+  useEffect(() => {
+    fetch("/api/google/sheets")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.error) throw new Error(d.error);
+        setSheets(d.files);
+      })
+      .catch((e) => setSheetsError(e.message))
+      .finally(() => setSheetsLoading(false));
+  }, []);
+
+  // fetch sheet tabs when sheet changes
+  useEffect(() => {
+    if (!cfg.googleSheetId) { setTabs([]); return; }
+    setTabsLoading(true);
+    fetch(`/api/google/sheets/${cfg.googleSheetId}/tabs`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.error) throw new Error(d.error);
+        setTabs(d.tabs);
+      })
+      .catch(() => setTabs([]))
+      .finally(() => setTabsLoading(false));
+  }, [cfg.googleSheetId]);
+
+  // fetch saved configs
+  useEffect(() => {
+    fetch("/api/export-configs")
+      .then((r) => r.json())
+      .then((data) => Array.isArray(data) && setSavedConfigs(data));
+  }, []);
+
+  // close calendar on outside click
+  useEffect(() => {
+    const h = (e: MouseEvent) => { if (calRef.current && !calRef.current.contains(e.target as Node)) setShowCal(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+
+  const updateCfg = useCallback(<K extends keyof ExportConfig>(key: K, val: ExportConfig[K]) => {
+    setCfg((p) => ({ ...p, [key]: val }));
+  }, []);
+
+  const addMapping = () => updateCfg("columnMapping", [...cfg.columnMapping, { fbCol: "", sheetCol: "" }]);
+  const removeMapping = (i: number) => updateCfg("columnMapping", cfg.columnMapping.filter((_, idx) => idx !== i));
+  const updateMapping = (i: number, key: "fbCol" | "sheetCol", val: string) => {
+    const next = cfg.columnMapping.map((m, idx) => idx === i ? { ...m, [key]: val } : m);
+    updateCfg("columnMapping", next);
+  };
+
+  const saveConfig = async () => {
+    if (!cfg.name.trim()) {
+      toast.error(isThai ? "กรุณาใส่ชื่อการตั้งค่า" : "Please enter a configuration name");
+      return;
+    }
+    const sheetName = sheets.find((s) => s.id === cfg.googleSheetId)?.name ?? "";
+
+    // Strictly separate Manual and Automatic modes
+    const finalCfg = {
+      ...cfg,
+      googleSheetName: sheetName,
+      // If NOT isAuto, then it's a permanent Manual config: clear schedule and auto flag
+      autoSchedule: cfg.isAuto ? cfg.autoSchedule : "",
+      isAuto: cfg.isAuto ? cfg.isAuto : false
+    };
+
+    if (activeConfigId) {
+      await fetch("/api/export-configs", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: activeConfigId, ...finalCfg }) });
+      setSavedConfigs((p) => p.map((c) => c.id === activeConfigId ? { ...finalCfg, id: activeConfigId } : c));
+    } else {
+      const res = await fetch("/api/export-configs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(finalCfg) });
+      const saved = await res.json();
+      setSavedConfigs((p) => [saved, ...p]);
+      setActiveConfigId(saved.id);
+    }
+    toast.success(isThai ? "บันทึกการตั้งค่าสำเร็จ" : "Configuration saved");
+  };
+
+  const loadConfig = (c: ExportConfig) => {
+    setCfg(c);
+    setActiveConfigId(c.id ?? null);
+    toast.info(
+      isThai ? `โหลดการตั้งค่า "${c.name}" แล้ว` : `Loaded configuration "${c.name}"`,
+    );
+  };
+
+  const deleteConfig = async () => {
+    if (!configToDelete) return;
+    await fetch("/api/export-configs", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: configToDelete.id }) });
+    setSavedConfigs((p) => p.filter((c) => c.id !== configToDelete.id));
+    if (activeConfigId === configToDelete.id) setActiveConfigId(null);
+    setIsDeleteConfirmOpen(false);
+    setConfigToDelete(null);
+    toast.success("ลบการตั้งค่าแล้ว");
+  };
+
+  const toggleAutoConfig = async (id: string, currentIsAuto: boolean) => {
+    const newIsAuto = !currentIsAuto;
+    try {
+      await fetch("/api/export-configs", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, isAuto: newIsAuto })
+      });
+
+      // Update local state list
+      setSavedConfigs((p) => p.map((c) => c.id === id ? { ...c, isAuto: newIsAuto } : c));
+
+      // If the toggled config is the currently active one, update the form state too
+      if (activeConfigId === id) {
+        setCfg((p) => ({ ...p, isAuto: newIsAuto }));
+      }
+
+      toast.success(newIsAuto ? "เปิดใช้งานส่งออกอัตโนมัติแล้ว" : "ปิดใช้งานส่งออกอัตโนมัติแล้ว");
+    } catch (error) {
+      toast.error(
+        isThai
+          ? "เกิดข้อผิดพลาดในการอัปเดตสถานะ"
+          : "An error occurred while updating status",
+      );
+    }
+  };
+
+  const handleExport = async () => {
+    if (!cfg.adAccountIds.length) {
+      toast.error(isThai ? "กรุณาเลือกบัญชีโฆษณา" : "Please select at least one ad account");
+      return;
+    }
+    if (!cfg.googleSheetId) {
+      toast.error(isThai ? "กรุณาเลือก Google Sheet" : "Please select a Google Sheet file");
+      return;
+    }
+    if (!cfg.sheetTab) {
+      toast.error(isThai ? "กรุณาเลือก Sheet Tab" : "Please select a Sheet tab");
+      return;
+    }
+    if (!cfg.columnMapping.some((m) => m.fbCol && m.sheetCol)) {
+      toast.error(
+        isThai ? "กรุณากำหนด Column Mapping" : "Please configure at least one column mapping",
+      );
+      return;
+    }
+    if (!selectedDate) {
+      toast.error(isThai ? "กรุณาเลือกวันที่ข้อมูล" : "Please choose a data date");
+      return;
+    }
+
+    setIsExporting(true);
+    try {
+      const res = await fetch("/api/export/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          adAccountIds: cfg.adAccountIds,
+          googleSheetId: cfg.googleSheetId,
+          sheetTab: cfg.sheetTab,
+          columnMapping: cfg.columnMapping.filter((m) => m.fbCol && m.sheetCol),
+          writeMode: cfg.writeMode,
+          dataDate: format(selectedDate, "yyyy-MM-dd"),
+          configId: activeConfigId ?? undefined,
+          configName: cfg.name || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Export failed");
+      toast.success(
+        isThai
+          ? `ส่งออกสำเร็จ! ${data.rowCount.toLocaleString()} แถว`
+          : `Export successful! ${data.rowCount.toLocaleString()} rows`,
+      );
+    } catch (e: unknown) {
+      toast.error(
+        e instanceof Error
+          ? e.message
+          : isThai
+            ? "เกิดข้อผิดพลาด"
+            : "An error occurred",
+      );
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const selectedSheet = sheets.find((s) => s.id === cfg.googleSheetId);
+
+  return (
+    <div className="max-w-5xl mx-auto space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+          {t("export.title")}
+        </h1>
+        <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
+          {t("export.subtitle")}
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        <div className="xl:col-span-2 space-y-5">
+
+          {/* 1. Ad Accounts */}
+          <Card>
+            <CardHeader className="pb-4">
+              <CardTitle className="text-base">
+                {t("export.step1Title")}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <MultiSelectDropdown
+                options={adAccounts}
+                selected={cfg.adAccountIds}
+                onChange={(ids) => updateCfg("adAccountIds", ids)}
+                placeholder={t("export.adAccountPlaceholder")}
+                loading={accountsLoading}
+                error={accountsError}
+                t={t}
+              />
+
+            </CardContent>
+          </Card>
+
+          {/* 2. Google Sheet */}
+          <Card>
+            <CardHeader className="pb-4">
+              <CardTitle className="text-base">
+                {t("export.step2Title")}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label>{t("export.googleSheetFile")}</Label>
+                  <SheetDropdown
+                    sheets={sheets}
+                    value={cfg.googleSheetId}
+                    onChange={(id, name) =>
+                      setCfg((p) => ({ ...p, googleSheetId: id, googleSheetName: name, sheetTab: "" }))
+                    }
+                    placeholder={t("export.googleSheetPlaceholder")}
+                    loading={sheetsLoading}
+                    error={sheetsError || undefined}
+                    t={t}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>{t("export.sheetTabLabel")}</Label>
+                  <TabDropdown
+                    tabs={tabs}
+                    value={cfg.sheetTab}
+                    onChange={(val) => updateCfg("sheetTab", val)}
+                    placeholder={
+                      !cfg.googleSheetId
+                        ? t("export.chooseFileFirst")
+                        : t("export.sheetTabPlaceholder")
+                    }
+                    disabled={!cfg.googleSheetId}
+                    loading={tabsLoading}
+                    t={t}
+                  />
+                </div>
+              </div>
+              {selectedSheet && (
+                <p className="text-xs text-gray-400">
+                  {t("export.selectedFile")}{" "}
+                  <span className="font-medium text-gray-600 dark:text-gray-300">
+                    {selectedSheet.name}
+                  </span>
+                  {selectedSheet.modifiedTime &&
+                    ` · ${t("export.lastModified")
+                    } ${format(new Date(selectedSheet.modifiedTime), "d MMM yyyy", {
+                      locale,
+                    })}`}
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* 3. Column Mapping */}
+          <Card>
+            <CardHeader className="pb-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-base">
+                    {t("export.step3Title")}
+                  </CardTitle>
+                  <CardDescription className="mt-1">
+                    {t("export.columnMappingDesc")}
+                  </CardDescription>
+                </div>
+                <Button onClick={addMapping} size="sm" variant="outline" className="gap-1">
+                  <Plus className="w-3.5 h-3.5" /> {t("export.addMapping")}
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2.5">
+                {cfg.columnMapping.map((m, idx) => (
+                  <div key={idx} className="flex items-center gap-2">
+                    <div className="flex-1 grid grid-cols-2 gap-2">
+                      <select
+                        className="h-9 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary"
+                        value={m.fbCol}
+                        onChange={(e) => updateMapping(idx, "fbCol", e.target.value)}
+                      >
+                        <option value="">
+                          {t("export.columnMappingFb")}
+                        </option>
+                        <option value={SKIP_FB_COL}>
+                          {t("export.skipEmpty")}
+                        </option>
+                        {FB_COLUMNS.map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        className="h-9 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary"
+                        value={m.sheetCol}
+                        onChange={(e) => updateMapping(idx, "sheetCol", e.target.value)}
+                      >
+                        <option value="">
+                          {t("export.columnMappingSheet")}
+                        </option>
+                        {SHEET_COLS.map((c) => (
+                          <option key={c} value={c}>
+                            {t("export.columnPrefix")} {c}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <button onClick={() => removeMapping(idx)} className="p-2 text-gray-400 hover:text-red-500 transition-colors"
+                      disabled={cfg.columnMapping.length === 1}>
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+            </CardContent>
+          </Card>
+
+        </div>
+
+        {/* Sidebar */}
+        <div className="space-y-5">
+          {/* Save & Saved configs */}
+          <Card>
+            <CardHeader className="pb-4 flex flex-row items-center justify-between space-y-0">
+              <CardTitle className="text-base">
+                {t("export.savedConfigs")}
+              </CardTitle>
+              <Link
+                href="/centxo/export/logs"
+                className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors group"
+                title={t("export.viewExportHistory")}
+              >
+                <FileClock className="w-5 h-5 text-gray-400 group-hover:text-primary" />
+              </Link>
+            </CardHeader>
+            <CardContent className="space-y-5">
+
+              {/* 1. Saved configs (Moved to top) */}
+              <div>
+
+                {savedConfigs.length === 0 ? (
+                  <div className="text-center py-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg">
+                    <p className="text-sm text-gray-500 dark:text-gray-400">{t("export.noSavedConfigs")}</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-[175px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-gray-800">
+                    {savedConfigs.map((c) => (
+                      <div key={c.id}
+                        className={cn("w-full py-2 px-3 rounded-lg border cursor-pointer transition-all relative group shadow-sm flex items-center justify-between gap-3",
+                          activeConfigId === c.id
+                            ? "border-primary bg-primary/10 dark:bg-primary/20 dark:border-primary ring-1 ring-primary/10"
+                            : "border-gray-200 dark:border-gray-800 hover:border-primary/50 dark:hover:border-primary/50 bg-white dark:bg-gray-900"
+                        )}
+                        onClick={() => loadConfig(c)}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-0.5">
+                            <p className="text-sm font-bold text-gray-900 dark:text-gray-100 truncate flex-1 leading-tight">{c.name}</p>
+                            {c.autoSchedule && c.isAuto && (
+                              <span className="text-[10px] font-medium text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/30 px-1.5 rounded-sm">
+                                {c.autoSchedule}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex flex-col gap-0.5 mt-1">
+                            <p className="text-[10px] text-gray-500 truncate leading-normal">
+                              {c.adAccountIds?.length ?? 0}{" "}
+                              {t("export.accountsCount")} · {c.googleSheetName || "—"}
+                            </p>
+                            <div className="flex items-center gap-1.5 scroll-mt-2 mt-1">
+                              <span className={cn("text-[9px] font-semibold uppercase tracking-wider px-1 rounded-sm",
+                                c.autoSchedule ? "bg-primary/20 text-primary dark:bg-primary/40 dark:text-primary" : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
+                              )}>
+                                {c.autoSchedule
+                                  ? t("export.automaticExport")
+                                  : t("export.manualExport")}
+                              </span>
+                              {c.autoSchedule && (
+                                <div className="flex items-center gap-1">
+                                  <div className={cn("h-1.5 w-1.5 rounded-full", c.isAuto ? "bg-green-500 shadow-[0_0_5px_rgba(34,197,94,0.5)]" : "bg-gray-300")} />
+                                  <span className={cn("text-[10px]", c.isAuto ? "text-green-600 font-medium" : "text-gray-400")}>
+                                    {c.isAuto
+                                      ? t("common.enabled") || (isThai ? "เปิดใช้งาน" : "Enabled")
+                                      : t("common.disabled") || (isThai ? "ปิดการทำงาน" : "Disabled")}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col items-end justify-between min-h-[42px] shrink-0 border-l border-gray-100 dark:border-gray-800 pl-3 ml-1">
+                          <div className="h-4 flex items-center justify-end w-full">
+                            {c.autoSchedule ? (
+                              <div
+                                onClick={(e) => e.stopPropagation()}
+                                title={
+                                  c.isAuto
+                                    ? t("export.disableAutoExport") || (isThai ? "ปิดส่งออกอัตโนมัติ" : "Disable automatic export")
+                                    : t("export.enableAutoExport") || (isThai ? "เปิดส่งออกอัตโนมัติ" : "Enable automatic export")
+                                }
+                              >
+                                <Switch
+                                  className="scale-[0.6] origin-right data-[state=checked]:bg-green-500"
+                                  checked={c.isAuto}
+                                  onCheckedChange={() => toggleAutoConfig(c.id!, c.isAuto)}
+                                />
+                              </div>
+                            ) : (
+                              <div className="w-8" /> /* Manual configs don't get a switch */
+                            )}
+                          </div>
+                          <button onClick={(e) => {
+                            e.stopPropagation();
+                            setConfigToDelete({ id: c.id!, name: c.name });
+                            setIsDeleteConfirmOpen(true);
+                          }}
+                            className="text-gray-400 hover:text-red-500 transition-all p-1 -mr-1"
+                            title={t("common.delete") || (isThai ? "ลบ" : "Delete")}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* 2. Save Configuration (Moved to bottom) */}
+              <div className="pt-4 border-t border-gray-100 dark:border-gray-800">
+                <div className="space-y-3">
+                  <div className="space-y-1.5">
+                    <Label>
+                      {t("export.configNameLabel")}
+                    </Label>
+                    <Input
+                      placeholder={
+                        t("export.configNamePlaceholder")
+                      }
+                      value={cfg.name}
+                      onChange={(e) => updateCfg("name", e.target.value)}
+                    />
+                  </div>
+                  <Button onClick={saveConfig} variant="outline" className="w-full gap-2">
+                    <Save className="w-4 h-4" />
+                    {activeConfigId
+                      ? t("export.updateCurrent")
+                      : t("export.saveNew")}
+                  </Button>
+                </div>
+              </div>
+
+            </CardContent>
+          </Card>
+
+          {/* 4. Write Mode + Schedule */}
+          <Card>
+            <CardHeader className="pb-4">
+              <CardTitle className="text-base">
+                {t("export.step4Title")}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              <div className="space-y-2">
+                <Label>{t("export.writeMode")}</Label>
+                <div className="space-y-1">
+                  {([
+                    {
+                      id: "append",
+                      label: t("export.writeModeAppend"),
+                    },
+                    {
+                      id: "overwrite",
+                      label: t("export.writeModeOverwrite"),
+                    },
+                  ] as const).map((opt) => (
+                    <button
+                      key={opt.id}
+                      onClick={() => updateCfg("writeMode", opt.id)}
+                      className={cn(
+                        "flex items-center w-full px-2 py-1.5 rounded-lg transition-colors text-left",
+                        cfg.writeMode === opt.id
+                          ? "bg-primary/10 dark:bg-primary/30 text-primary dark:text-primary font-medium"
+                          : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
+                      )}
+                    >
+                      <div
+                        className={cn(
+                          "flex h-3.5 w-3.5 items-center justify-center rounded-full border shrink-0",
+                          cfg.writeMode === opt.id ? "border-primary bg-primary" : "border-gray-300 dark:border-gray-600"
+                        )}
+                      >
+                        {cfg.writeMode === opt.id && (
+                          <div className="h-1.5 w-1.5 rounded-full bg-white" />
+                        )}
+                      </div>
+                      <span className="ml-2.5 text-sm">
+                        {opt.label}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2 pt-2">
+                <Label>{t("export.executionMode")}</Label>
+                <div className="space-y-1">
+                  {([
+                    {
+                      id: false,
+                      label: t("export.manualExport"),
+                    },
+                    {
+                      id: true,
+                      label: t("export.automaticExport"),
+                    },
+                  ] as const).map((opt) => (
+                    <button
+                      key={String(opt.id)}
+                      onClick={() => updateCfg("isAuto", opt.id)}
+                      className={cn(
+                        "flex items-center w-full px-2 py-1.5 rounded-lg transition-colors text-left",
+                        cfg.isAuto === opt.id
+                          ? "bg-primary/10 dark:bg-primary/30 text-primary dark:text-primary font-medium"
+                          : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
+                      )}
+                    >
+                      <div className="flex items-center flex-1">
+                        <div
+                          className={cn(
+                            "flex h-3.5 w-3.5 items-center justify-center rounded-full border shrink-0",
+                            cfg.isAuto === opt.id ? "border-primary bg-primary" : "border-gray-300 dark:border-gray-600"
+                          )}
+                        >
+                          {cfg.isAuto === opt.id && (
+                            <div className="h-1.5 w-1.5 rounded-full bg-white" />
+                          )}
+                        </div>
+                        <span className="ml-2.5 text-sm">
+                          {opt.label}
+                        </span>
+                      </div>
+                      {opt.id && cfg.isAuto === opt.id && (
+                        <RefreshCw className="h-3.5 w-3.5 text-primary animate-spin-slow" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {cfg.isAuto && (
+                <div className="space-y-3 pt-2 border-t dark:border-gray-800">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-gray-500">
+                      {t("export.exportTime")}
+                    </Label>
+                    <div className="flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-gray-400" />
+                      <div className="flex items-center gap-1">
+                        <select
+                          value={cfg.autoSchedule.split(":")[0]}
+                          onChange={(e) => {
+                            const [_, m] = cfg.autoSchedule.split(":");
+                            updateCfg("autoSchedule", `${e.target.value}:${m}`);
+                          }}
+                          className="h-9 w-16 rounded-lg border border-gray-200 bg-white px-2 text-sm dark:border-gray-700 dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-primary"
+                        >
+                          {Array.from({ length: 24 }).map((_, i) => {
+                            const h = String(i).padStart(2, "0");
+                            return <option key={h} value={h}>{h}</option>;
+                          })}
+                        </select>
+                        <span className="text-gray-400">:</span>
+                        <select
+                          value={cfg.autoSchedule.split(":")[1]}
+                          onChange={(e) => {
+                            const [h, _] = cfg.autoSchedule.split(":");
+                            updateCfg("autoSchedule", `${h}:${e.target.value}`);
+                          }}
+                          className="h-9 w-16 rounded-lg border border-gray-200 bg-white px-2 text-sm dark:border-gray-700 dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-primary"
+                        >
+                          {Array.from({ length: 60 }).map((_, i) => {
+                            const m = String(i).padStart(2, "0");
+                            return <option key={m} value={m}>{m}</option>;
+                          })}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-gray-500">
+                      {t("export.exportFrequency")}
+                    </Label>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        variant={cfg.autoDays.length === 7 ? "secondary" : "ghost"}
+                        size="sm"
+                        onClick={() => updateCfg("autoDays", [0, 1, 2, 3, 4, 5, 6])}
+                        className={cn("text-xs h-8 px-3", cfg.autoDays.length === 7 && "bg-primary/20 text-primary hover:bg-primary/30 dark:bg-primary/40 dark:text-primary")}
+                      >
+                        {isThai ? "ทุกวัน" : "Every day"}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={cfg.autoDays.length < 7 ? "secondary" : "ghost"}
+                        size="sm"
+                        onClick={() => {
+                          if (cfg.autoDays.length === 7) updateCfg("autoDays", [1, 2, 3, 4, 5]);
+                        }}
+                        className={cn("text-xs h-8 px-3", cfg.autoDays.length < 7 && "bg-primary/20 text-primary hover:bg-primary/30 dark:bg-primary/40 dark:text-primary")}
+                      >
+                        {t("export.pickDays")}
+                      </Button>
+                    </div>
+
+                    {cfg.autoDays.length < 7 && (
+                      <div className="flex gap-1 mt-1">
+                        {DAYS.map((day) => (
+                          <button
+                            key={day.id}
+                            type="button"
+                            onClick={() => {
+                              const newDays = cfg.autoDays.includes(day.id)
+                                ? cfg.autoDays.filter((d) => d !== day.id)
+                                : [...cfg.autoDays, day.id].sort();
+                              if (newDays.length > 0) updateCfg("autoDays", newDays);
+                            }}
+                            className={cn(
+                              "h-7 w-7 rounded-md text-[10px] flex items-center justify-center border transition-colors",
+                              cfg.autoDays.includes(day.id)
+                                ? "bg-primary border-primary text-white font-bold"
+                                : "bg-white border-gray-200 text-gray-500 hover:border-gray-300 dark:bg-gray-800 dark:border-gray-700"
+                            )}
+                          >
+                            {isThai ? day.labelTh : day.labelEn}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* 5. Date */}
+          <Card>
+            <CardHeader className="pb-4">
+              <CardTitle className="text-base">
+                {t("export.step5Title")}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {cfg.isAuto ? (
+                <div className="space-y-1.5 px-1">
+                  <select
+                    value={cfg.dateRange}
+                    onChange={(e) => updateCfg("dateRange", e.target.value)}
+                    className="h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary"
+                  >
+                    <option value="today">
+                      {t("export.dateToday")}
+                    </option>
+                    <option value="yesterday">
+                      {t("export.dateYesterday")}
+                    </option>
+                    <option value="last_7_days">
+                      {t("export.dateLast7Days")}
+                    </option>
+                  </select>
+                </div>
+              ) : (
+                <div ref={calRef} className="relative w-full">
+                  <button
+                    onClick={() => setShowCal(!showCal)}
+                    className="flex h-10 w-full items-center gap-2 rounded-lg border border-gray-200 px-4 text-sm text-gray-900 transition-colors hover:border-primary dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+                  >
+                    <Calendar className="h-4 w-4 text-gray-500" />
+                    {selectedDate
+                      ? format(selectedDate, "d MMMM yyyy", { locale })
+                      : t("export.selectDatePlaceholder")}
+                    {selectedDate && (
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedDate(null);
+                        }}
+                        className="ml-1 text-gray-400 hover:text-gray-600"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </span>
+                    )}
+                  </button>
+                  {showCal && (
+                    <div className="absolute z-50 mt-1">
+                      <MiniCalendar
+                        value={selectedDate}
+                        locale={locale}
+                        isThai={isThai}
+                        onChange={(d) => {
+                          setSelectedDate(d);
+                          setShowCal(false);
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Export button */}
+          <Card className="border-primary/20 dark:border-primary/30 bg-primary/5 dark:bg-primary/10">
+            <CardContent className="p-5 space-y-3">
+              <div className="flex items-center gap-2">
+                <FileSpreadsheet className="w-5 h-5 text-teal-600 dark:text-teal-400" />
+                <span className="font-semibold text-gray-900 dark:text-gray-100">
+                  {t("export.exportSummary")}
+                </span>
+              </div>
+              <div className="text-xs text-gray-500 dark:text-gray-400 space-y-1">
+                <p>
+                  {t("export.adAccount")}: {cfg.adAccountIds.length}{" "}
+                  {t("common.selected") || (isThai ? "รายการ" : "selected")}
+                </p>
+                <p>
+                  {t("export.autoDays")}:{" "}
+                  {selectedDate ? format(selectedDate, "d MMM yyyy", { locale }) : "—"}
+                </p>
+                <p>
+                  {t("export.sheetTabLabel")}: {cfg.sheetTab || "—"}
+                </p>
+                <p>
+                  {t("export.writeMode")}:{" "}
+                  {cfg.writeMode === "append"
+                    ? t("export.writeModeAppend")
+                    : t("export.writeModeOverwrite")}
+                </p>
+              </div>
+              <Button onClick={handleExport} className="w-full gap-2" disabled={isExporting}>
+                {isExporting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />{" "}
+                    {t("export.exporting")}
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-4 h-4" />{" "}
+                    {t("export.exportNow")}
+                  </>
+                )}
+              </Button>
+            </CardContent>
+          </Card>
+
+
+
+        </div>
+      </div>
+      <Dialog open={isDeleteConfirmOpen} onOpenChange={setIsDeleteConfirmOpen}>
+        <DialogContent className="max-w-[400px] p-0 overflow-hidden rounded-xl border-none shadow-2xl">
+          <div className="p-5 flex items-start gap-4">
+            <div className="w-10 h-10 rounded-full bg-red-50 dark:bg-red-900/20 flex items-center justify-center shrink-0">
+              <Trash2 className="w-5 h-5 text-red-600" />
+            </div>
+            <div className="flex-1 pt-0.5">
+              <DialogTitle className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-1 text-left">
+                {t("export.deleteConfigTitle")}
+              </DialogTitle>
+              <p className="text-sm text-gray-500 dark:text-gray-400 text-left leading-snug">
+                {t("export.deleteConfigDesc")}{" "}
+                <span className="font-semibold text-gray-900 dark:text-gray-100">
+                  "{configToDelete?.name}"
+                </span>
+                ?
+              </p>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 p-4 pt-0">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="px-4 h-9 rounded-lg text-gray-500 font-medium hover:bg-gray-100 dark:hover:bg-gray-800"
+              onClick={() => setIsDeleteConfirmOpen(false)}
+            >
+              {t("common.cancel")}
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              className="px-4 h-9 rounded-lg bg-red-600 hover:bg-red-700 font-bold"
+              onClick={deleteConfig}
+            >
+              {t("common.confirm")}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div >
+  );
+}
