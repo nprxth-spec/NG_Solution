@@ -313,15 +313,16 @@ function MiniCalendar({
             const today = isSameDay(day, new Date());
 
             let cls =
-              "h-[1.75rem] w-full flex items-center justify-center text-sm transition-colors ";
+              "h-[1.75rem] w-full flex items-center justify-center text-sm transition-colors rounded-md ";
             if (isStart || isEnd) {
-              cls += "bg-primary text-white ring-1 ring-primary/70 rounded-md";
+              cls +=
+                "bg-teal-600 text-white shadow-sm ring-1 ring-teal-700/40 dark:bg-teal-500 dark:ring-teal-300/30";
             } else if (inRange) {
               cls +=
-                "bg-primary/10 dark:bg-primary/30 text-primary dark:text-primary";
+                "bg-teal-100 text-teal-900 dark:bg-teal-900/45 dark:text-teal-50";
             } else if (today) {
               cls +=
-                "bg-primary/10 dark:bg-primary/30 text-primary dark:text-primary font-medium";
+                "bg-teal-50 text-teal-800 dark:bg-teal-950/60 dark:text-teal-200 font-medium";
             } else {
               cls +=
                 "hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300";
@@ -362,13 +363,15 @@ function MiniCalendar({
             onClick={() => handleQuickRange("today")}
           >
             <span
-              className={`w-3.5 h-3.5 rounded-full border ${isQuickActive("today")
-                ? "border-primary"
-                : "border-gray-300 dark:border-gray-500"
-                } flex items-center justify-center`}
+              className={cn(
+                "w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0",
+                isQuickActive("today")
+                  ? "border-teal-600 dark:border-teal-400"
+                  : "border-gray-300 dark:border-gray-500",
+              )}
             >
               {isQuickActive("today") && (
-                <span className="w-2 h-2 rounded-full bg-primary" />
+                <span className="w-2 h-2 rounded-full bg-teal-600 dark:bg-teal-400" />
               )}
             </span>
             {isThai ? "วันนี้" : "Today"}
@@ -379,13 +382,15 @@ function MiniCalendar({
             onClick={() => handleQuickRange("yesterday")}
           >
             <span
-              className={`w-3.5 h-3.5 rounded-full border ${isQuickActive("yesterday")
-                ? "border-primary"
-                : "border-gray-300 dark:border-gray-500"
-                } flex items-center justify-center`}
+              className={cn(
+                "w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0",
+                isQuickActive("yesterday")
+                  ? "border-teal-600 dark:border-teal-400"
+                  : "border-gray-300 dark:border-gray-500",
+              )}
             >
               {isQuickActive("yesterday") && (
-                <span className="w-2 h-2 rounded-full bg-primary" />
+                <span className="w-2 h-2 rounded-full bg-teal-600 dark:bg-teal-400" />
               )}
             </span>
             {isThai ? "เมื่อวาน" : "Yesterday"}
@@ -396,13 +401,15 @@ function MiniCalendar({
             onClick={() => handleQuickRange("last7")}
           >
             <span
-              className={`w-3.5 h-3.5 rounded-full border ${isQuickActive("last7")
-                ? "border-primary"
-                : "border-gray-300 dark:border-gray-500"
-                } flex items-center justify-center`}
+              className={cn(
+                "w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0",
+                isQuickActive("last7")
+                  ? "border-teal-600 dark:border-teal-400"
+                  : "border-gray-300 dark:border-gray-500",
+              )}
             >
               {isQuickActive("last7") && (
-                <span className="w-2 h-2 rounded-full bg-primary" />
+                <span className="w-2 h-2 rounded-full bg-teal-600 dark:bg-teal-400" />
               )}
             </span>
             {isThai ? "7 วันที่ผ่านมา" : "Last 7 days"}
@@ -413,13 +420,15 @@ function MiniCalendar({
             onClick={() => handleQuickRange("last14")}
           >
             <span
-              className={`w-3.5 h-3.5 rounded-full border ${isQuickActive("last14")
-                ? "border-primary"
-                : "border-gray-300 dark:border-gray-500"
-                } flex items-center justify-center`}
+              className={cn(
+                "w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0",
+                isQuickActive("last14")
+                  ? "border-teal-600 dark:border-teal-400"
+                  : "border-gray-300 dark:border-gray-500",
+              )}
             >
               {isQuickActive("last14") && (
-                <span className="w-2 h-2 rounded-full bg-primary" />
+                <span className="w-2 h-2 rounded-full bg-teal-600 dark:bg-teal-400" />
               )}
             </span>
             {isThai ? "14 วันที่ผ่านมา" : "Last 14 days"}
@@ -430,13 +439,15 @@ function MiniCalendar({
             onClick={() => handleQuickRange("thisMonth")}
           >
             <span
-              className={`w-3.5 h-3.5 rounded-full border ${isQuickActive("thisMonth")
-                ? "border-primary"
-                : "border-gray-300 dark:border-gray-500"
-                } flex items-center justify-center`}
+              className={cn(
+                "w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0",
+                isQuickActive("thisMonth")
+                  ? "border-teal-600 dark:border-teal-400"
+                  : "border-gray-300 dark:border-gray-500",
+              )}
             >
               {isQuickActive("thisMonth") && (
-                <span className="w-2 h-2 rounded-full bg-primary" />
+                <span className="w-2 h-2 rounded-full bg-teal-600 dark:bg-teal-400" />
               )}
             </span>
             {isThai ? "เดือนนี้" : "This month"}
@@ -447,13 +458,15 @@ function MiniCalendar({
             onClick={() => handleQuickRange("lastMonth")}
           >
             <span
-              className={`w-3.5 h-3.5 rounded-full border ${isQuickActive("lastMonth")
-                ? "border-primary"
-                : "border-gray-300 dark:border-gray-500"
-                } flex items-center justify-center`}
+              className={cn(
+                "w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0",
+                isQuickActive("lastMonth")
+                  ? "border-teal-600 dark:border-teal-400"
+                  : "border-gray-300 dark:border-gray-500",
+              )}
             >
               {isQuickActive("lastMonth") && (
-                <span className="w-2 h-2 rounded-full bg-primary" />
+                <span className="w-2 h-2 rounded-full bg-teal-600 dark:bg-teal-400" />
               )}
             </span>
             {isThai ? "เดือนที่ผ่านมา" : "Last month"}
@@ -474,7 +487,7 @@ function MiniCalendar({
         </button>
         <button
           type="button"
-          className="px-3 py-1.5 text-sm rounded-md bg-primary text-white hover:bg-primary/90 disabled:opacity-60"
+          className="px-3 py-1.5 text-sm rounded-md bg-teal-600 text-white hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-600 disabled:opacity-60"
           onClick={() => onConfirm(draftStart, draftEnd ?? draftStart)}
           disabled={!draftStart}
         >

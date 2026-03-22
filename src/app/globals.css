@@ -6,7 +6,8 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  --primary: #52cdcb; /* Custom Brand Primary */
+  /* Brand accent (links, borders); solid buttons use teal-* in `button` for readable contrast */
+  --primary: #52cdcb;
   --radius: 0.625rem;
   --background: #f5f6f7;
   --foreground: oklch(0.145 0 0);

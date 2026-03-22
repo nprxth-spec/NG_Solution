@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { stripe } from "@/lib/stripe";
 import { cookies } from "next/headers";
-
-const ADMIN_SESSION_TOKEN = process.env.ADMIN_SESSION_TOKEN ?? "admin-session";
+import { verifyAdminSessionCookie } from "@/lib/admin-session";
+import { getClientIp } from "@/lib/audit-log";
 
 const planEnvMap: Record<string, string | undefined> = {
   pro: process.env.STRIPE_PRICE_PRO,
@@ -17,7 +17,7 @@ export async function POST(
   const isAjax = req.headers.get("x-admin-ajax") === "1";
   const cookieStore = await cookies();
   const token = cookieStore.get("admin_session")?.value;
-  if (!token || token !== ADMIN_SESSION_TOKEN) {
+  if (!(await verifyAdminSessionCookie(token))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -73,6 +73,15 @@ export async function POST(
 
     // ถ้าเลือก free ให้ยกเลิกอย่างเดียว ไม่สร้าง subscription ใหม่
     if (planId === "free") {
+      await prisma.auditLog.create({
+        data: {
+          userId: user.id,
+          type: "admin_plan_change",
+          description: "Admin set plan to free (Stripe subscriptions cancelled)",
+          metadata: { planId: "free" } as object,
+          ip: getClientIp(req),
+        },
+      });
       if (isAjax) {
         return NextResponse.json({ ok: true, planId: "free" });
       }
@@ -111,6 +120,16 @@ export async function POST(
       default_payment_method: defaultPm,
       metadata: { planId },
       expand: ["latest_invoice.payment_intent"],
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: user.id,
+        type: "admin_plan_change",
+        description: `Admin created Stripe subscription for plan: ${planId}`,
+        metadata: { planId, priceId } as object,
+        ip: getClientIp(req),
+      },
     });
 
     if (isAjax) {

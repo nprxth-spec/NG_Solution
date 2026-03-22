@@ -87,7 +87,6 @@ export function PortalConnections() {
       toast.error(isThai ? "ไม่สามารถเชื่อมต่อ Facebook ได้" : "Failed to link Facebook account");
       router.replace("/dashboard?menu=connections");
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, isThai, updateSession, router]);
 
   useEffect(() => {

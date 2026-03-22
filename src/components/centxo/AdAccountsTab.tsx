@@ -14,6 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
 
 type ManagerAccount = {
   id: string;
@@ -528,8 +529,26 @@ export function AdAccountsTab() {
                   <div className="flex flex-wrap gap-4 text-sm">
                     {["change", "reset", "delete"].map((m) => (
                       <div key={m} className="flex items-center gap-2 cursor-pointer" onClick={() => setMode(m as any)}>
-                        <span className={`w-5 h-5 rounded-full border flex items-center justify-center ${mode === m ? "border-primary" : "border-gray-300 dark:border-gray-600"}`}>
-                          <span className={`w-2.5 h-2.5 rounded-full ${mode === m ? (m === "delete" ? "bg-red-500" : "bg-primary") : "bg-transparent"}`} />
+                        <span
+                          className={cn(
+                            "w-5 h-5 rounded-full border flex items-center justify-center shrink-0",
+                            mode === m
+                              ? m === "delete"
+                                ? "border-red-500 dark:border-red-400"
+                                : "border-teal-600 dark:border-teal-400"
+                              : "border-gray-300 dark:border-gray-600",
+                          )}
+                        >
+                          <span
+                            className={cn(
+                              "w-2.5 h-2.5 rounded-full",
+                              mode === m
+                                ? m === "delete"
+                                  ? "bg-red-500 dark:bg-red-400"
+                                  : "bg-teal-600 dark:bg-teal-400"
+                                : "bg-transparent",
+                            )}
+                          />
                         </span>
                         <span className="text-gray-700 dark:text-gray-200">
                           {m === "change" ? (isThai ? "เปลี่ยน Limit" : "Change limit") : m === "reset" ? (isThai ? "รีเซ็ต Limit" : "Reset limit") : (isThai ? "ลบ Limit" : "Delete limit")}

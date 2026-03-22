@@ -6,9 +6,20 @@ import { logActivity } from "@/lib/activity-log";
 import { BILLING_PLANS } from "@/lib/billing-plans";
 import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
+import {
+  getGoogleOAuthCredentials,
+  refreshGoogleOAuthTokens,
+} from "@/lib/google-oauth";
 
-if (!process.env.AUTH_SECRET) {
-  console.warn("WARNING: AUTH_SECRET is not defined in environment variables!");
+if (process.env.NODE_ENV === "production" && !process.env.AUTH_SECRET) {
+  throw new Error(
+    "AUTH_SECRET must be set when NODE_ENV is production. Add it to your environment (e.g. Vercel project settings).",
+  );
+}
+if (process.env.NODE_ENV !== "production" && !process.env.AUTH_SECRET) {
+  console.warn(
+    "WARNING: AUTH_SECRET is not set — set it in .env.local for stable sessions.",
+  );
 }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
@@ -45,24 +56,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         }
 
         return user;
-      },
-    }),
-    Google({
-      clientId: process.env.AUTH_GOOGLE_ID || process.env.GOOGLE_CLIENT_ID!,
-      clientSecret: process.env.AUTH_GOOGLE_SECRET || process.env.GOOGLE_CLIENT_SECRET!,
-      authorization: {
-        params: {
-          scope: [
-            "openid",
-            "email",
-            "profile",
-            "https://www.googleapis.com/auth/drive.readonly",
-            "https://www.googleapis.com/auth/drive.file",
-            "https://www.googleapis.com/auth/spreadsheets",
-          ].join(" "),
-          access_type: "offline",
-          prompt: "consent select_account",
-        },
       },
     }),
     Google({
@@ -156,39 +149,51 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           }
         }
 
-        if (token.accessToken && token.expiresAt && Date.now() > (token.expiresAt as number) - 5 * 60 * 1000) {
+        const creds = getGoogleOAuthCredentials();
+        const refreshToken = token.refreshToken as string | undefined;
+        if (
+          creds &&
+          refreshToken &&
+          token.accessToken &&
+          token.expiresAt &&
+          Date.now() > (token.expiresAt as number) - 5 * 60 * 1000
+        ) {
           try {
-            const refreshToken = token.refreshToken as string;
-            if (refreshToken) {
-              const url = "https://oauth2.googleapis.com/token";
-              const response = await fetch(url, {
-                headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                method: "POST",
-                body: new URLSearchParams({
-                  client_id: process.env.AUTH_GOOGLE_ID || process.env.GOOGLE_CLIENT_ID!,
-                  client_secret: process.env.AUTH_GOOGLE_SECRET || process.env.GOOGLE_CLIENT_SECRET!,
-                  grant_type: "refresh_token",
-                  refresh_token: refreshToken,
-                }),
+            const refreshed = await refreshGoogleOAuthTokens(
+              refreshToken,
+              creds,
+            );
+            if (refreshed) {
+              token.accessToken = refreshed.access_token;
+              token.expiresAt = Date.now() + refreshed.expires_in * 1000;
+              await prisma.account.updateMany({
+                where: { userId: token.userId as string, provider: "google" },
+                data: {
+                  access_token: refreshed.access_token,
+                  expires_at: Math.floor((token.expiresAt as number) / 1000),
+                  ...(refreshed.refresh_token && {
+                    refresh_token: refreshed.refresh_token,
+                  }),
+                },
               });
-
-              const tokens = await response.json();
-              if (response.ok) {
-                token.accessToken = tokens.access_token;
-                token.expiresAt = Date.now() + tokens.expires_in * 1000;
-                
-                await prisma.account.updateMany({
-                  where: { userId: token.userId as string, provider: "google" },
-                  data: { 
-                    access_token: tokens.access_token,
-                    expires_at: Math.floor((token.expiresAt as number) / 1000),
-                    ...(tokens.refresh_token && { refresh_token: tokens.refresh_token })
-                  }
-                });
-              }
+            } else {
+              token.accessToken = undefined;
+              token.refreshToken = undefined;
+              token.expiresAt = 0;
+              await prisma.account.updateMany({
+                where: { userId: token.userId as string, provider: "google" },
+                data: { access_token: null, expires_at: null },
+              });
             }
           } catch (error) {
             console.error("Error refreshing Google access token", error);
+            token.accessToken = undefined;
+            token.refreshToken = undefined;
+            token.expiresAt = 0;
+            await prisma.account.updateMany({
+              where: { userId: token.userId as string, provider: "google" },
+              data: { access_token: null, expires_at: null },
+            });
           }
         }
       }
@@ -198,7 +203,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     async session({ session, token }: any) {
       if (token) {
         session.user.id = token.userId as string;
-        session.accessToken = token.accessToken as string;
         session.user.credits = token.credits as number;
         session.user.plan = token.plan as string;
         session.user.sheetId = token.sheetId as string;
@@ -210,6 +214,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         session.user.driveFolderId = token.driveFolderId as string;
         session.user.connectedProviders = token.connectedProviders as string[];
       }
+      // ไม่ส่ง OAuth access token ไป client — ดึงจาก DB/API ฝั่งเซิร์ฟเวอร์เท่านั้น
       return session;
     },
     async signIn({ user, account }: any) {

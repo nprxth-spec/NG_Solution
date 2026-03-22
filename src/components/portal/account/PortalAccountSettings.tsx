@@ -242,7 +242,7 @@ function PasswordSettingsSection() {
       {(!hasPassword && !isChanging) ? (
         <div className="flex flex-col gap-3 py-2">
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            You haven't set a password yet. Set one now to enable password login.
+            You haven&apos;t set a password yet. Set one now to enable password login.
           </p>
           <div className="flex justify-end">
             <button

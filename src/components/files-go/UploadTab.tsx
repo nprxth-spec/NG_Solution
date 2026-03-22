@@ -203,23 +203,19 @@ export function UploadTab() {
         try {
             if (typeof window === "undefined") return;
             const apiKey = process.env.NEXT_PUBLIC_GOOGLE_API_KEY;
-            let accessToken = (session as any)?.accessToken as string | undefined;
 
             if (!apiKey) {
                 setFolderError("Missing NEXT_PUBLIC_GOOGLE_API_KEY in environment.");
                 return;
             }
 
-            // If accessToken not on session (some environments), fetch from API
-            if (!accessToken) {
-                const res = await fetch("/api/files-go/google/access-token");
-                const data = await res.json();
-                if (!res.ok || !data?.data?.accessToken) {
-                    setFolderError(data?.error ?? "Google access token missing. Please sign in again.");
-                    return;
-                }
-                accessToken = data.data.accessToken as string;
+            const res = await fetch("/api/files-go/google/access-token");
+            const data = await res.json();
+            if (!res.ok || !data?.data?.accessToken) {
+                setFolderError(data?.error ?? "Google access token missing. Please sign in again.");
+                return;
             }
+            const accessToken = data.data.accessToken as string;
 
             await loadGoogleApiScript();
 

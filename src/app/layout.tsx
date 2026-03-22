@@ -6,6 +6,7 @@ import { SessionProvider } from "next-auth/react";
 import { auth } from "@/lib/auth";
 
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
+import type { Language } from "@/lib/translations";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -22,13 +23,13 @@ export default async function RootLayout({
 }) {
   const session = await auth();
 
-  const initialLanguage = "th";
+  const initialLanguage: Language = "th";
 
   return (
     <html lang={initialLanguage} suppressHydrationWarning>
       <body className={inter.className}>
         <SessionProvider session={session}>
-          <ThemeProvider initialLanguage={initialLanguage as any}>
+          <ThemeProvider initialLanguage={initialLanguage}>
             {children}
             <Toaster richColors position="top-right" />
           </ThemeProvider>

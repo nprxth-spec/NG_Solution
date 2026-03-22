@@ -623,9 +623,9 @@ function MiniCalendar({
               className={cn(
                 "w-full aspect-square flex items-center justify-center text-xs rounded-lg transition-colors",
                 sel
-                  ? "bg-primary text-white"
+                  ? "bg-teal-600 text-white shadow-sm dark:bg-teal-500"
                   : today
-                    ? "bg-primary/10 dark:bg-primary/30 text-primary dark:text-primary font-medium"
+                    ? "bg-teal-50 text-teal-800 dark:bg-teal-950/60 dark:text-teal-200 font-medium"
                     : "hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300",
               )}
             >
@@ -1495,7 +1495,7 @@ export function ExportTab() {
               <p className="text-sm text-gray-500 dark:text-gray-400 text-left leading-snug">
                 {t("export.deleteConfigDesc")}{" "}
                 <span className="font-semibold text-gray-900 dark:text-gray-100">
-                  "{configToDelete?.name}"
+                  &ldquo;{configToDelete?.name}&rdquo;
                 </span>
                 ?
               </p>

@@ -5,7 +5,9 @@ export type AuditLogType =
   | "config_drive"
   | "config_sheet"
   | "config_naming"
-  | "config_plan";
+  | "config_plan"
+  | "admin_credit_adjust"
+  | "admin_plan_change";
 
 /**
  * Get client IP from request (handles proxies: x-forwarded-for, x-real-ip).

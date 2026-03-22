@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { cookies } from "next/headers";
-
-const ADMIN_SESSION_TOKEN = process.env.ADMIN_SESSION_TOKEN ?? "admin-session";
+import { verifyAdminSessionCookie } from "@/lib/admin-session";
 
 async function isAdminAuthenticated() {
   const cookieStore = await cookies();
-  return cookieStore.get("admin_session")?.value === ADMIN_SESSION_TOKEN;
+  const v = cookieStore.get("admin_session")?.value;
+  return verifyAdminSessionCookie(v);
 }
 
 export async function POST(

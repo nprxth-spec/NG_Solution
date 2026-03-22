@@ -1,5 +1,9 @@
 import { prisma } from "@/lib/db";
 import { google } from "googleapis";
+import { getValidGoogleAccessToken } from "@/lib/google-auth";
+import { getGoogleOAuthCredentials } from "@/lib/google-oauth";
+
+const FB_EXPIRY_SKEW_MS = 5 * 60 * 1000;
 
 /** ดึง access_token ของ provider จาก Account table */
 export async function getProviderToken(userId: string, provider: "google" | "facebook") {
@@ -11,23 +15,36 @@ export async function getProviderToken(userId: string, provider: "google" | "fac
   return account;
 }
 
-/** สร้าง Google OAuth2 client พร้อม token */
+function isFacebookTokenUsable(expiresAt: number | null | undefined): boolean {
+  if (expiresAt == null) return false;
+  const expMs = expiresAt * 1000;
+  return Date.now() < expMs - FB_EXPIRY_SKEW_MS;
+}
+
+/** สร้าง Google OAuth2 client พร้อม access token ที่ต่ออายุแล้ว (ไม่ใช้โทเค็นเก่าจาก DB โดยตรง) */
 export async function getGoogleClient(userId: string) {
-  const account = await getProviderToken(userId, "google");
-  if (!account) return null;
+  const creds = getGoogleOAuthCredentials();
+  if (!creds) return null;
 
-  const hasRefreshToken = !!account.refresh_token;
+  const accessToken = await getValidGoogleAccessToken(userId);
+  if (!accessToken) return null;
 
-  const oauth2 = new google.auth.OAuth2(
-    process.env.AUTH_GOOGLE_ID,
-    process.env.AUTH_GOOGLE_SECRET
-  );
+  const account = await prisma.account.findFirst({
+    where: { userId, provider: "google" },
+    select: { refresh_token: true, expires_at: true },
+  });
+
+  const hasRefreshToken = !!account?.refresh_token;
+
+  const oauth2 = new google.auth.OAuth2(creds.clientId, creds.clientSecret);
 
   oauth2.setCredentials({
-    access_token: account.access_token,
-    // ถ้าไม่มี refresh_token ให้ไม่ตั้ง expiry_date เพื่อไม่ให้ไลบรารีพยายาม refresh แล้ว error ว่า "No refresh token is set"
-    refresh_token: hasRefreshToken ? account.refresh_token ?? undefined : undefined,
-    expiry_date: hasRefreshToken && account.expires_at ? account.expires_at * 1000 : undefined,
+    access_token: accessToken,
+    refresh_token: hasRefreshToken ? account?.refresh_token ?? undefined : undefined,
+    expiry_date:
+      hasRefreshToken && account?.expires_at
+        ? account.expires_at * 1000
+        : undefined,
   });
 
   // Auto-refresh ถ้า token หมดอายุ และอัปเดตใน DB
@@ -67,20 +84,31 @@ export async function getGoogleClient(userId: string) {
   return oauth2;
 }
 
-/** ดึง Facebook access token (บัญชีแรก) */
+/**
+ * Facebook long-lived token — คืนค่าเฉพาะเมื่อยังไม่หมดอายุ (ไม่ส่งโทเค็นเก่าไป Graph API)
+ */
 export async function getFacebookToken(userId: string) {
-  const account = await getProviderToken(userId, "facebook");
-  return account?.access_token ?? null;
+  const account = await prisma.account.findFirst({
+    where: { userId, provider: "facebook" },
+    select: { access_token: true, expires_at: true },
+    orderBy: { id: "asc" },
+  });
+  if (!account?.access_token) return null;
+  if (!isFacebookTokenUsable(account.expires_at)) return null;
+  return account.access_token;
 }
 
-/** ดึง Facebook access token ทุกบัญชีที่ user เชื่อมต่อ */
+/** ดึง Facebook access token ทุกบัญชีที่ user เชื่อมต่อ (เฉพาะที่ยังไม่หมดอายุ) */
 export async function getAllFacebookTokens(userId: string): Promise<{ providerAccountId: string; token: string }[]> {
   const accounts = await prisma.account.findMany({
     where: { userId, provider: "facebook" },
-    select: { providerAccountId: true, access_token: true },
+    select: { providerAccountId: true, access_token: true, expires_at: true },
   });
   return accounts
-    .filter((a): a is { providerAccountId: string; access_token: string } => !!a.access_token)
+    .filter(
+      (a): a is { providerAccountId: string; access_token: string; expires_at: number | null } =>
+        !!a.access_token && isFacebookTokenUsable(a.expires_at),
+    )
     .map((a) => ({ providerAccountId: a.providerAccountId, token: a.access_token }));
 }
 

@@ -25,6 +25,7 @@ import {
   SearchCode,
   ShieldCheck,
   Languages,
+  LayoutDashboard,
   Zap,
   SunMedium,
   Moon,
@@ -256,6 +257,15 @@ export default function AppSelectorDashboard() {
       href: "/files-go/dashboard",
       type: "WEB-APP",
       color: "teal"
+    },
+    {
+      title: "NG Workspace",
+      description:
+        "Overview of your export stats, success rate, and quick links to Centxo, FilesGo, and data tools.",
+      icon: LayoutDashboard,
+      href: "/workspace",
+      type: "WEB-APP",
+      color: "rose",
     },
     {
       title: "Ads Check by NG Solution",

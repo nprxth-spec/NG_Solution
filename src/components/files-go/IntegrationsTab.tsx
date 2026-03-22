@@ -88,7 +88,6 @@ export function IntegrationsTab() {
             }
         };
         load();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     // Load list of available Google Sheets
@@ -407,7 +406,7 @@ export function IntegrationsTab() {
                                     </div>
                                 )}
                                 <p className="text-xs text-slate-400 mt-2">
-                                    Sheets are loaded from your Google Drive account. Make sure the target sheet is shared with this app's Google user.
+                                    Sheets are loaded from your Google Drive account. Make sure the target sheet is shared with this app&apos;s Google user.
                                 </p>
                             </div>
                             <div className="md:col-span-2 relative" ref={tabMenuRef}>

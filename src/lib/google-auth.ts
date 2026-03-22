@@ -1,13 +1,27 @@
 import { prisma } from "@/lib/prisma";
+import {
+  getGoogleOAuthCredentials,
+  refreshGoogleOAuthTokens,
+} from "@/lib/google-oauth";
 
 const FIVE_MINUTES_MS = 5 * 60 * 1000;
 
 /**
  * Returns a valid Google OAuth access token for the user.
- * If the token in DB is expired (or expires within 5 min), refreshes it and saves to DB.
- * Use this in API routes that call Google APIs so they don't get "invalid authentication credentials".
+ * Refreshes when expired or within 5 minutes of expiry; persists to DB.
+ * Returns null if missing, expired without refresh, or refresh failed (no stale tokens).
  */
-export async function getValidGoogleAccessToken(userId: string): Promise<string | null> {
+export async function getValidGoogleAccessToken(
+  userId: string,
+): Promise<string | null> {
+  const creds = getGoogleOAuthCredentials();
+  if (!creds) {
+    console.error(
+      "getValidGoogleAccessToken: Google OAuth credentials not configured (AUTH_GOOGLE_* or GOOGLE_*)",
+    );
+    return null;
+  }
+
   const account = await prisma.account.findFirst({
     where: { userId, provider: "google" },
     select: {
@@ -19,49 +33,37 @@ export async function getValidGoogleAccessToken(userId: string): Promise<string 
 
   if (!account?.access_token) return null;
 
-  const expiresAt = account.expires_at ? account.expires_at * 1000 : 0;
+  const expiresAtMs = account.expires_at ? account.expires_at * 1000 : 0;
   const now = Date.now();
 
-  if (expiresAt && now < expiresAt - FIVE_MINUTES_MS) {
+  if (expiresAtMs > 0 && now < expiresAtMs - FIVE_MINUTES_MS) {
     return account.access_token;
   }
 
-  const refreshToken = account.refresh_token;
-  if (!refreshToken) return account.access_token;
-
-  try {
-    const response = await fetch("https://oauth2.googleapis.com/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        client_id: process.env.GOOGLE_CLIENT_ID!,
-        client_secret: process.env.GOOGLE_CLIENT_SECRET!,
-        grant_type: "refresh_token",
-        refresh_token: refreshToken,
-      }),
-    });
-
-    const tokens = await response.json();
-    if (!response.ok) {
-      console.error("Google token refresh failed:", tokens);
-      return account.access_token;
-    }
-
-    const newAccessToken = tokens.access_token;
-    const newExpiresAt = Math.floor((Date.now() + (tokens.expires_in ?? 3600) * 1000) / 1000);
-
-    await prisma.account.updateMany({
-      where: { userId, provider: "google" },
-      data: {
-        access_token: newAccessToken,
-        expires_at: newExpiresAt,
-        ...(tokens.refresh_token && { refresh_token: tokens.refresh_token }),
-      },
-    });
-
-    return newAccessToken;
-  } catch (err) {
-    console.error("Error refreshing Google access token:", err);
-    return account.access_token;
+  if (!account.refresh_token) {
+    return null;
   }
+
+  const refreshed = await refreshGoogleOAuthTokens(
+    account.refresh_token,
+    creds,
+  );
+  if (!refreshed) {
+    return null;
+  }
+
+  const newExpiresAt = Math.floor(
+    (Date.now() + refreshed.expires_in * 1000) / 1000,
+  );
+
+  await prisma.account.updateMany({
+    where: { userId, provider: "google" },
+    data: {
+      access_token: refreshed.access_token,
+      expires_at: newExpiresAt,
+      ...(refreshed.refresh_token && { refresh_token: refreshed.refresh_token }),
+    },
+  });
+
+  return refreshed.access_token;
 }

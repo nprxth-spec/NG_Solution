@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 export type AuditLogType =
@@ -42,8 +43,10 @@ export async function createAuditLog(
         userId,
         type,
         description: description ?? null,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        metadata: mergedMetadata as any,
+        metadata:
+          mergedMetadata != null
+            ? (mergedMetadata as Prisma.InputJsonValue)
+            : undefined,
       },
     });
   } catch (err) {

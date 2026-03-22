@@ -16,7 +16,6 @@ declare module "next-auth" {
       driveFolderId?: string | null;
       connectedProviders?: string[];
     } & DefaultSession["user"];
-    accessToken?: string;
   }
 
   interface User {
